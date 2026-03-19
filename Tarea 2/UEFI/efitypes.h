@@ -20,6 +20,29 @@ typedef struct {
     UINT8  Data4[8]; 
 } EFI_GUID;
 
+typedef struct {
+    UINT32 MaxMode;
+    UINT32 Mode;
+    UINT32 Attribute;
+    UINT32 CursorColumn;
+    UINT32 CursorRow;
+    int CursorVisible;
+} SIMPLE_TEXT_OUTPUT_MODE;
+
+typedef struct {
+    UINT16 Year;
+    UINT8  Month;
+    UINT8  Day;
+    UINT8  Hour;
+    UINT8  Minute;
+    UINT8  Second;
+    UINT8  Pad1;
+    UINT32 Nanosecond;
+    UINT16  TimeZone;
+    UINT8  Daylight;
+    UINT8  Pad2;
+} EFI_TIME;
+
 // Forward declarations
 typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
 typedef struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
@@ -36,14 +59,44 @@ typedef EFI_STATUS (*EFI_TEXT_STRING)(
 typedef EFI_STATUS (*EFI_TEXT_CLEAR_SCREEN)(
     EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This);
 
+
+typedef EFI_STATUS (*EFI_TEXT_QUERY_MODE)(
+    EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This,
+    UINTN ModeNumber,
+    UINTN *Columns,
+    UINTN *Rows
+);
+
+typedef EFI_STATUS (*EFI_TEXT_SET_CURSOR_POSITION)(
+    EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This,
+    UINTN Column,
+    UINTN Row
+);
+
+typedef EFI_STATUS (*EFI_GET_TIME)(
+    EFI_TIME *Time,
+    void *Capabilities
+);
+
+typedef struct {
+    char _pad[24];
+    EFI_GET_TIME GetTime;
+} EFI_RUNTIME_SERVICES;
+
 struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL{
     EFI_TEXT_RESET Reset;
     EFI_TEXT_STRING OutputString;
     void *TestString;
-    void *QueryMode;
+
+    EFI_TEXT_QUERY_MODE QueryMode;
     void *SetMode;
     void *SetAttribute;
+
     EFI_TEXT_CLEAR_SCREEN ClearScreen;
+    EFI_TEXT_SET_CURSOR_POSITION     SetCursorPosition;
+
+    void *EnableCursor;
+    SIMPLE_TEXT_OUTPUT_MODE *Mode;
 };
 
 /* =========================
@@ -74,6 +127,9 @@ typedef struct {
     EFI_SIMPLE_TEXT_INPUT_PROTOCOL  *ConIn;
     void                            *ConsoleOutHandle;
     EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *ConOut;
+    void                            *StdErrHandle;
+    void                            *StdErr;
+    EFI_RUNTIME_SERVICES            *RuntimeServices;
 } EFI_SYSTEM_TABLE;
 
 #endif
