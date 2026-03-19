@@ -18,7 +18,8 @@ void start_game(EFI_SYSTEM_TABLE *SystemTable){
     EFI_TIME time;
     SystemTable->RuntimeServices->GetTime(&time, NULL);
 
-    seed = time.Nanosecond + time.Second;
+    seed ^= time.Nanosecond;
+    seed ^= (time.Second << 16);
 
     /* obtener tamaño de pantalla */
     SystemTable->ConOut->QueryMode(
