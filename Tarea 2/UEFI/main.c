@@ -73,8 +73,9 @@ struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL {
 / ========================= */
 
 typedef struct {
-    char _pad1[44];
+    char _pad1[48];
     EFI_SIMPLE_TEXT_INPUT_PROTOCOL  *ConIn;
+    void                            *ConsoleOutHandle;
     EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *ConOut;
 
 } EFI_SYSTEM_TABLE;
