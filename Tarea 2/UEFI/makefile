@@ -32,8 +32,13 @@ all: $(TARGET)
 main.o: main.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): main.o
-	$(CC) $(LDFLAGS)  $< -o $@
+game.o: game.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+OBJS := main.o game.o
+
+$(TARGET): $(OBJS)
+	$(CC) $(LDFLAGS) $(OBJS) -o $@
 	@echo ""
 	@echo "Built: $(TARGET)"
 	@file $(TARGET)
