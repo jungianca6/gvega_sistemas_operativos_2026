@@ -27,8 +27,10 @@ LDFLAGS := \
 
 .PHONY: all clean disk run
 
-#hay 8 lineas entre estos 2
-#no se si hay algo más ahí
+all: $(TARGET)
+
+main.o: main.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): main.o
 	$(CC) $(LDFLAGS)  $< -o $@
@@ -37,21 +39,20 @@ $(TARGET): main.o
 	@file $(TARGET)
 
 disk: $(TARGET)
-	dd if=/dev/zero of=$(DISK_IMG) bs=1M count
+	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=64
 	mkfs.vfat -F 32 $(DISK_IMG)
 	mkdir -p  /tmp/efi_mnt
 	sudo mount $(DISK_IMG) /tmp/efi_mnt
 	sudo mkdir -p /tmp/efi_mnt/EFI/BOOT 
-	sudo cp $(TARGET) /tmp/efi_mnt/EFI/BOOT/ 
+	sudo cp $(TARGET) /tmp/efi_mnt/EFI/BOOT/BOOTX64.EFI 
 	sudo umount /tmp/efi_mnt
 	@echo "Imagen lista: $(DISK_IMG)"
 
-#despues de EFI/BOOT/ habia algo que empezaba con BO pero no se logra ver en la captura
 
 run: disk
 	qemu-system-x86_64 \
 		-bios /usr/share/ovmf/OVMF.fd \
-		-drive format=raw, file=$(DISK_IMG)\
+		-drive format=raw,file=$(DISK_IMG)\
 		-net none
 
 clean:
