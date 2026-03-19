@@ -29,10 +29,10 @@ LDFLAGS := \
 
 all: $(TARGET)
 
-main.o: main.c
+main.o: main.c efitypes.h game.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-game.o: game.c
+game.o: game.c efitypes.h game.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 OBJS := main.o game.o
