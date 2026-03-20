@@ -1,0 +1,6 @@
+sudo mount /dev/sdX1 /mnt
+sudo mkdir -p /mnt/EFI/BOOT
+sudo cp bootloader.efi /mnt/EFI/BOOT/BOOTX64.EFI
+sudo umount /mnt
+
+Para bootearlo en la llave maya
