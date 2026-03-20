@@ -1,3 +1,21 @@
+# ==========================================================
+# UEFI Bootloader Makefile
+#
+# Compila una aplicación UEFI usando clang y lld sin EDK2.
+#
+# Funcionalidad:
+#   make       -> compilar bootloader
+#   make disk  -> crear imagen FAT32 para QEMU
+#   make run   -> ejecutar en QEMU con firmware OVMF
+#   make usb   -> copiar bootloader a USB real
+#
+# El firmware UEFI busca automáticamente el archivo:
+#
+#   EFI/BOOT/BOOTX64.EFI
+#
+# dentro de una partición FAT32.
+# ==========================================================
+
 TARGET  := bootloader.efi 
 DISK_IMG := uefi_disk.img 
 USB_DEV := /dev/sdb1
@@ -15,7 +33,6 @@ CFLAGS := \
 	-Wall -Wextra					\
 	-std=c11  						\
 	
-#std=c11 asumo que es la version de C usada
 
 # lld-link usa sintaxis /flag:value
 
