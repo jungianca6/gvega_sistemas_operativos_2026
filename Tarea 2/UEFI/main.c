@@ -40,7 +40,7 @@ start:
 
     start_game(SystemTable);
 
-    get_key(SystemTable);
+    // get_key(SystemTable);
 
     goto start;
 }
