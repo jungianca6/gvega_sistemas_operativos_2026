@@ -4,3 +4,20 @@ sudo cp bootloader.efi /mnt/EFI/BOOT/BOOTX64.EFI
 sudo umount /mnt
 
 Para bootearlo en la llave maya
+
+
+usb: $(TARGET)
+	sudo mkdir -p /media/dell/KINGSTON/EFI/BOOT
+	sudo cp $(TARGET) /media/dell/KINGSTON/EFI/BOOT/BOOTX64.EFI
+	sudo sync
+	@echo "Bootloader copiado al USB ($(USB_DEV))"
+
+USB_MNT := /media/dell/KINGSTON
+
+
+usb: $(TARGET)
+	sudo mount $(USB_DEV) /mnt
+	sudo mkdir -p /mnt/EFI/BOOT
+	sudo cp $(TARGET) /mnt/EFI/BOOT/BOOTX64.EFI
+	sudo umount /mnt
+	@echo "Bootloader copiado al USB ($(USB_DEV))"

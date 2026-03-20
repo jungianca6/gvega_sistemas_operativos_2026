@@ -1,5 +1,7 @@
 TARGET  := bootloader.efi 
 DISK_IMG := uefi_disk.img 
+USB_DEV := /dev/sdb1
+USB_MNT := /media/dell/KINGSTON
 
 CC := clang
 
@@ -25,7 +27,7 @@ LDFLAGS := \
 	-Wl,/entry:efi_main				\
 	-Wl,/dll						\
 
-.PHONY: all clean disk run
+.PHONY: all clean disk run usb
 
 all: $(TARGET)
 
@@ -43,6 +45,10 @@ $(TARGET): $(OBJS)
 	@echo "Built: $(TARGET)"
 	@file $(TARGET)
 
+# -------------------------
+# Crear imagen para QEMU
+# -------------------------
+
 disk: $(TARGET)
 	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=64
 	mkfs.vfat -F 32 $(DISK_IMG)
@@ -53,12 +59,25 @@ disk: $(TARGET)
 	sudo umount /tmp/efi_mnt
 	@echo "Imagen lista: $(DISK_IMG)"
 
+# -------------------------
+# Ejecutar en QEMU
+# -------------------------
 
 run: disk
 	qemu-system-x86_64 \
 		-bios /usr/share/ovmf/OVMF.fd \
 		-drive format=raw,file=$(DISK_IMG)\
 		-net none
+
+# -------------------------
+# Copiar a USB real
+# -------------------------
+
+usb: $(TARGET)
+	sudo mkdir -p $(USB_MNT)/EFI/BOOT
+	sudo cp $(TARGET) $(USB_MNT)/EFI/BOOT/BOOTX64.EFI
+	sudo sync
+	@echo "Bootloader copiado al USB ($(USB_MNT))"
 
 clean:
 	rm -f *.o *.efi $(DISK_IMG)
