@@ -5,7 +5,7 @@ build:
 emulate:
 	qemu-system-x86_64 -drive format=raw,file=os.bin
 
-remove:
+clean:
 	rm stage2.bin
 	rm os.bin
 
