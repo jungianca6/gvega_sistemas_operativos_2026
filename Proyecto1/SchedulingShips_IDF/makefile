@@ -1,32 +1,33 @@
 # ===== CONFIG =====
 PORT ?= /dev/ttyUSB0
 TARGET ?= esp32c6
-IDF_PATH ?= ~/esp/esp-idf
+IDF_PATH ?= $(HOME)/esp/esp-idf
+IDF_EXPORT = export IDF_PATH=$(IDF_PATH) && export IDF_PATH_FORCE=1 && . $(IDF_PATH)/export.sh &&
 
-# ===== EXPORT ENV =====
+# ===== EXPORT =====
 export:
-	. $(IDF_PATH)/export.sh
+	$(IDF_EXPORT)
 
 # ===== SET TARGET =====
 set-target:
-	. $(IDF_PATH)/export.sh && idf.py set-target $(TARGET)
+	$(IDF_EXPORT) idf.py set-target $(TARGET)
 
 # ===== BUILD =====
-build:
-	. $(IDF_PATH)/export.sh && idf.py build
+idfbuild:
+	$(IDF_EXPORT) idf.py build
 
 # ===== FLASH =====
 flash:
-	. $(IDF_PATH)/export.sh && idf.py -p $(PORT) flash
+	$(IDF_EXPORT) idf.py flash
 
 # ===== MONITOR =====
 monitor:
-	. $(IDF_PATH)/export.sh && idf.py -p $(PORT) monitor
+	$(IDF_EXPORT) idf.py -p $(PORT) monitor
 
 # ===== FLASH + MONITOR =====
 run:
-	. $(IDF_PATH)/export.sh && idf.py -p $(PORT) flash monitor
+	$(IDF_EXPORT) idf.py -p $(PORT) flash monitor
 
 # ===== CLEAN =====
 clean:
-	. $(IDF_PATH)/export.sh && idf.py fullclean
+	$(IDF_EXPORT) idf.py fullclean
