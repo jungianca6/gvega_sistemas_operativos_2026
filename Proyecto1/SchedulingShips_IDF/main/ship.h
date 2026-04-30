@@ -20,5 +20,5 @@ typedef struct Ship {
 
 void printShip(const Ship* b);
 void inicializar_barco(Ship* barco, int id, ShipType type);
-
+const char* shipTypeToString(ShipType type);
 #endif // BARCO_H

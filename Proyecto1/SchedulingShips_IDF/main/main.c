@@ -54,7 +54,9 @@ void IRAM_ATTR gpio_isr_handler(void* arg) {
 void BarcoTask(void *parameter) {
     Ship* barco = (Ship*) parameter;
 
-    ESP_LOGI(TAG, "Barco creado ID: %d Tipo: %d", barco->id, barco->type);
+    ESP_LOGI(TAG, "Barco creado ID: %d Tipo: %s",
+    barco->id,
+    shipTypeToString(barco->type));
 
     vTaskDelay(pdMS_TO_TICKS(3000));
 

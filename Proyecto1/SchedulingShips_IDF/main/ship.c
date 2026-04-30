@@ -21,7 +21,14 @@ void inicializar_barco(Ship* barco, int id, ShipType type) {
         break;
     }
 }
-
+const char* shipTypeToString(ShipType type) {
+    switch(type) {
+    case NORMAL: return "Normal";
+    case PESQUERO: return "Pesquero";
+    case PATRULLA: return "Patrulla";
+    default: return "Desconocido";
+    }
+}
 
 void printShip(const Ship* b) {
     printf("Tipo de barco: ");
