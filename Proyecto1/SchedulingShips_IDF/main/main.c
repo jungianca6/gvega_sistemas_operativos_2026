@@ -9,18 +9,20 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "HD44780.h"
+#include <driver/i2c.h>
 
 #include "ship.h"
 #include "ready_queue.h"
-
+#include "lcd_display.h"
 /*
  * Pines GPIO usados para los botones.
  *
  * Cada botón crea un barco de un tipo diferente.
  */
-#define BTN_NORMAL   4
-#define BTN_PESQUERO 5
-#define BTN_PATRULLA 6
+#define BTN_NORMAL   18
+#define BTN_PESQUERO 19
+#define BTN_PATRULLA 20
 
 /*
  * Pin GPIO usado como DIP switch para seleccionar la dirección.
@@ -128,6 +130,7 @@ void CreadorTask(void *parameter) {
 
                     printQueue(&colaIzq);
                     printQueue(&colaDer);
+                    lcd_mostrar_colas(&colaIzq, &colaDer);
                 } else {
                     /*
                      * Si no se pudo encolar, se libera la memoria del barco
@@ -165,6 +168,7 @@ void CanalTask(void *param) {
             vTaskDelay(pdMS_TO_TICKS(3000));
 
             free(barco);
+            lcd_mostrar_colas(&colaIzq, &colaDer);
         }
 
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -232,6 +236,7 @@ void app_main(void) {
 
     initQueue(&colaIzq, "COLA IZQUIERDA");
     initQueue(&colaDer, "COLA DERECHA");
+    lcd_init();
 
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
     xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, NULL);
