@@ -8,18 +8,17 @@
 #include <string.h>
 #include <stdio.h>
 
-#define LCD_ADDR 0x27
-#define SDA_PIN  6
-#define SCL_PIN  7
+#define LCD_ADDR 0x26
+#define SDA_PIN  21
+#define SCL_PIN  22
 
 static const char *TAG = "LCD";
+static LCD_t main_lcd;
 
 // ---------------- INIT ----------------
 void lcd_init(void) {
-    LCD_init(LCD_ADDR, SDA_PIN, SCL_PIN, 16, 2);
-
-    LCD_clearScreen();
-
+    LCD_init(&main_lcd, LCD_ADDR, SDA_PIN, SCL_PIN, 16, 2);
+    LCD_clearScreen(&main_lcd);
     ESP_LOGI(TAG, "LCD inicializado correctamente");
 }
 
@@ -58,11 +57,11 @@ void lcd_mostrar_colas(QueueShip *izq, QueueShip *der) {
     build_line(izq, "IZQ:", linea0);
     build_line(der, "DER:", linea1);
 
-    LCD_setCursor(0, 0);
-    LCD_writeStr(linea0);
+    LCD_setCursor(&main_lcd, 0, 0);
+    LCD_writeStr(&main_lcd, linea0);
 
-    LCD_setCursor(0, 1);
-    LCD_writeStr(linea1);
+    LCD_setCursor(&main_lcd, 0, 1);
+    LCD_writeStr(&main_lcd, linea1);
 
     ESP_LOGI(TAG, "LCD -> [%s] [%s]", linea0, linea1);
 }

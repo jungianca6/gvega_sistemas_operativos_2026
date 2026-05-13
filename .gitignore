@@ -337,3 +337,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+/Proyecto1/SchedulingShips_IDF/.vscode
+Proyecto1/SchedulingShips_IDF/Project.md

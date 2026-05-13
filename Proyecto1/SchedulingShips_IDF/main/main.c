@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "HD44780.h"
 #include <driver/i2c.h>
+#include "driver/uart.h"
 
 #include "ship.h"
 #include "ready_queue.h"
@@ -31,6 +32,9 @@
  * 1 -> DERECHA
  */
 #define BTN_COLA     22
+
+#define UART_PORT_NUM UART_NUM_0
+#define BUF_SIZE 1024
 
 static const char *TAG = "MAIN";
 
@@ -220,6 +224,62 @@ void init_buttons() {
     gpio_isr_handler_add(BTN_PATRULLA, gpio_isr_handler, (void*) BTN_PATRULLA);
 }
 
+// ---------------- SCROLL TASK ----------------
+static LCD_t lcd1, lcd2;
+
+void ScrollTask(void *param) {
+    const char *text = "--- ESP32 MULTI-LCD SCROLLING EXAMPLE --- ";
+    int len = strlen(text);
+    char buffer[17];
+    int start = 0;
+
+    for (;;) {
+        for (int i = 0; i < 16; i++) {
+            buffer[i] = text[(start + i) % len];
+        }
+        buffer[16] = '\0';
+
+        // Scroll on LCD 1, line 0
+        LCD_setCursor(&lcd1, 0, 0);
+        LCD_writeStr(&lcd1, buffer);
+
+        // Scroll on LCD 2, line 1
+        LCD_setCursor(&lcd2, 0, 1);
+        LCD_writeStr(&lcd2, buffer);
+
+        start = (start + 1) % len;
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+}
+
+// ---------------- UART TASK ----------------
+void init_uart() {
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    uart_param_config(UART_PORT_NUM, &uart_config);
+    uart_driver_install(UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, 0);
+}
+
+void UartReceiverTask(void *pvParameters) {
+    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+    for (;;) {
+        int len = uart_read_bytes(UART_PORT_NUM, data, BUF_SIZE - 1, pdMS_TO_TICKS(100));
+        if (len > 0) {
+            data[len] = '\0';
+            // Print message as requested
+            ESP_LOGI(TAG, "Mensaje recibido Serial: %s", (char *)data);
+        }
+    }
+    free(data);
+    vTaskDelete(NULL);
+}
+
 // ---------------- MAIN ----------------
 /*
  * Punto de entrada principal en ESP-IDF.
@@ -236,8 +296,26 @@ void app_main(void) {
 
     initQueue(&colaIzq, "COLA IZQUIERDA");
     initQueue(&colaDer, "COLA DERECHA");
+
+    // Initialize both LCDs for scrolling example
+    LCD_init(&lcd1, 0x23, 21, 22, 16, 2);
+    LCD_init(&lcd2, 0x26, 21, 22, 16, 2);
+
+    // Also initialize the main LCD abstraction for ship tracking
     lcd_init();
+
+    LCD_clearScreen(&lcd1);
+    LCD_clearScreen(&lcd2);
+
+    LCD_setCursor(&lcd1, 0, 1);
+    LCD_writeStr(&lcd1, "LCD 1 (0x23)");
+    LCD_setCursor(&lcd2, 0, 0);
+    LCD_writeStr(&lcd2, "LCD 2 (0x26)");
 
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
     xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, NULL);
+    xTaskCreate(ScrollTask, "Scroll", 2048, NULL, 1, NULL);
+
+    init_uart();
+    xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);
 }

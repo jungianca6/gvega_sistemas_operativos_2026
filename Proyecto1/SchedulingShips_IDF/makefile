@@ -1,7 +1,12 @@
 # ===== CONFIG =====
 PORT ?= /dev/ttyUSB0
-TARGET ?= esp32c6
-IDF_PATH ?= $(HOME)/esp/esp-idf
+TARGET ?= esp32
+# Try to get IDF_PATH from environment, otherwise use default
+IDF_PATH ?= $(shell echo $$IDF_PATH)
+ifeq ($(IDF_PATH),)
+    IDF_PATH = $(HOME)/esp/esp-idf
+endif
+# Use a more robust export string
 IDF_EXPORT = export IDF_PATH=$(IDF_PATH) && export IDF_PATH_FORCE=1 && . $(IDF_PATH)/export.sh &&
 
 # ===== EXPORT =====
@@ -26,7 +31,9 @@ monitor:
 
 # ===== FLASH + MONITOR =====
 run:
-	$(IDF_EXPORT) idf.py -p $(PORT) flash monitor
+	$(IDF_EXPORT) idf.py -p $(PORT) flash
+	python3 serial_gui.py &
+	$(IDF_EXPORT) idf.py -p $(PORT) monitor
 
 # ===== CLEAN =====
 clean:
