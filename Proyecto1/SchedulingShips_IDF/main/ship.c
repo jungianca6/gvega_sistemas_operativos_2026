@@ -12,39 +12,26 @@
  *
  * La velocidad se asigna dependiendo del tipo de barco.
  */
-void inicializar_barco(Ship* barco, int id, ShipType type, Direction dir) {
+void inicializar_barco(Ship* barco, int id, ShipType type, Direction dir, int speed) {
     barco->id = id;
     barco->type = type;
     barco->direction = dir;
-
-    switch (type) {
-        case NORMAL:
-            barco->speed = 1.0;
-            break;
-        case PESQUERO:
-            barco->speed = 2.0;
-            break;
-        case PATRULLA:
-            barco->speed = 3.0;
-            break;
-        default:
-            barco->speed = 1.0;
-        break;
-    }
+    barco->speed = speed;
+    barco->sem = xSemaphoreCreateBinary();
 }
 
 /*
  * Devuelve una abreviatura del tipo de barco.
  *
- * N  = Normal
- * PE = Pesquero
- * PA = Patrulla
+ * STD = Standard
+ * FHS = Fishing
+ * PTR = Patrol
  */
 const char* shipTypeToString(ShipType type) {
     switch(type) {
-    case NORMAL: return "N";
-    case PESQUERO: return "PE";
-    case PATRULLA: return "PA";
+    case STANDARD: return "STD";
+    case FISHING: return "FHS";
+    case PATROL: return "PTR";
     default: return "?";
     }
 }
@@ -52,13 +39,13 @@ const char* shipTypeToString(ShipType type) {
 /*
  * Devuelve una abreviatura de la dirección del barco.
  *
- * IZQ = Izquierda
- * DER = Derecha
+ * L = Left
+ * R = Right
  */
 const char* dirToString(Direction dir) {
     switch(dir) {
-    case IZQUIERDA: return "IZQ";
-    case DERECHA: return "DER";
+    case LEFT: return "L";
+    case RIGHT: return "R";
     default: return "?";
     }
 }

@@ -31,9 +31,11 @@ monitor:
 
 # ===== FLASH + MONITOR =====
 run:
-	$(IDF_EXPORT) idf.py -p $(PORT) flash
-	python3 serial_gui.py &
-	$(IDF_EXPORT) idf.py -p $(PORT) monitor
+	$(IDF_EXPORT) idf.py -p $(PORT) flash monitor
+
+# ===== RUN GUI =====
+gui:
+	python3 serial_gui.py
 
 # ===== CLEAN =====
 clean:

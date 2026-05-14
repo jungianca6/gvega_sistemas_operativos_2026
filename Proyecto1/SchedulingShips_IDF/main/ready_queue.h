@@ -5,7 +5,7 @@
 /*
  * Cantidad máxima de barcos permitidos por cola.
  */
-#define MAX_QUEUE 4
+#define MAX_QUEUE 19
 
 /*
  * Nodo de la lista enlazada.

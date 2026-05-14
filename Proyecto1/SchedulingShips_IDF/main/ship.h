@@ -1,17 +1,21 @@
 #ifndef BARCO_H
 #define BARCO_H
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 /*
  * Enumeración que representa los tipos de barcos disponibles
  * en el sistema.
  *
- * NORMAL: barco estándar.
- * PESQUERO: barco tipo pesquero.
- * PATRULLA: barco de patrulla.
+ * STANDARD: barco estándar.
+ * FISHING: barco tipo pesquero.
+ * PATROL: barco de patrulla.
  */
 typedef enum {
-    NORMAL,
-    PESQUERO,
-    PATRULLA
+    STANDARD,
+    FISHING,
+    PATROL
 } ShipType;
 
 /*
@@ -19,8 +23,8 @@ typedef enum {
  * el barco dentro del canal.
  */
 typedef enum {
-    IZQUIERDA,
-    DERECHA
+    LEFT,
+    RIGHT
 } Direction;
 
 /*
@@ -38,10 +42,11 @@ typedef struct Ship {
     int speed;
     int deadline;
     int priority;
+    SemaphoreHandle_t sem; // Semáforo para controlar el turno
 } Ship;
 
 const char* shipTypeToString(ShipType type);
 const char* dirToString(Direction dir);
-void inicializar_barco(Ship* barco, int id, ShipType type, Direction dir);
+void inicializar_barco(Ship* barco, int id, ShipType type, Direction dir, int speed);
 
 #endif // BARCO_H

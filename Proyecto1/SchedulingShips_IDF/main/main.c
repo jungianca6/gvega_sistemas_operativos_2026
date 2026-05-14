@@ -16,6 +16,9 @@
 #include "ship.h"
 #include "ready_queue.h"
 #include "lcd_display.h"
+#include "esp_spiffs.h"
+#include "config_parser.h"
+#include "channel.h"
 /*
  * Pines GPIO usados para los botones.
  *
@@ -53,6 +56,13 @@ QueueHandle_t buttonQueue;
  * Identificador incremental para asignar un ID único a cada barco.
  */
 static int barcoID = 0;
+
+/*
+ * Configuración global cargada desde config.txt.
+ */
+static AppConfig appConfig;
+static Channel mainChannel;
+static int shipSpeeds[3]; // STANDARD, FISHING, PATROL
 
 // ---------------- ISR ----------------
 /*
@@ -101,50 +111,90 @@ void IRAM_ATTR gpio_isr_handler(void* arg) {
  */
 QueueShip colaIzq;
 QueueShip colaDer;
+
+// Forward declarations
+void ShipTask(void *parameter);
+esp_err_t init_spiffs(void);
+
+void spawn_ship_thread(void *arg) {
+    Ship* barco = (Ship*)arg;
+    char name[16];
+    snprintf(name, sizeof(name), "ShipTask_%d", barco->id);
+    xTaskCreate(ShipTask, name, 2048, barco, 1, NULL);
+}
 // ---------------- TASK CREADOR ----------------
 void CreadorTask(void *parameter) {
-    int pin;
+    // 1. Inicializar SPIFFS y Cargar Configuración
+    if (init_spiffs() == ESP_OK) {
+        if (parseConfigFile("/spiffs/config.txt", &appConfig) == ESP_OK) {
+            shipSpeeds[STANDARD] = appConfig.standard_speed;
+            shipSpeeds[FISHING] = appConfig.fishing_speed;
+            shipSpeeds[PATROL] = appConfig.patrol_speed;
 
+            init_channel(&mainChannel, 
+                         appConfig.channel_length, 
+                         appConfig.standard_speed, 
+                         appConfig.flow_control, 
+                         appConfig.sign_duration, 
+                         appConfig.parameter_w);
+        }
+    }
+
+    // 2. Inicializar Colas
+    initQueue(&colaIzq, "COLA IZQUIERDA");
+    initQueue(&colaDer, "COLA DERECHA");
+
+    // 3. Poblar barcos iniciales (y crear sus hilos)
+    populate_queue_from_config(&colaIzq, appConfig.queue_left, appConfig.queue_left_count, LEFT, shipSpeeds, &barcoID, spawn_ship_thread);
+    populate_queue_from_config(&colaDer, appConfig.queue_right, appConfig.queue_right_count, RIGHT, shipSpeeds, &barcoID, spawn_ship_thread);
+
+    int pin;
     for (;;) {
         if (xSemaphoreTake(buttonSemaphore, portMAX_DELAY)) {
-
             if (xQueueReceive(buttonQueue, &pin, 0)) {
-
                 Ship* barco = malloc(sizeof(Ship));
                 if (!barco) continue;
 
                 ShipType tipo;
-                if (pin == BTN_NORMAL) tipo = NORMAL;
-                else if (pin == BTN_PESQUERO) tipo = PESQUERO;
-                else tipo = PATRULLA;
+                if (pin == BTN_NORMAL) tipo = STANDARD;
+                else if (pin == BTN_PESQUERO) tipo = FISHING;
+                else tipo = PATROL;
 
-                // Lee el DIP switch para seleccionar dirección.
                 int estado = gpio_get_level(BTN_COLA);
-                Direction dir = estado ? DERECHA : IZQUIERDA;
+                Direction dir = estado ? RIGHT : LEFT;
 
-                inicializar_barco(barco, barcoID++, tipo, dir);
+                inicializar_barco(barco, barcoID++, tipo, dir, shipSpeeds[tipo]);
 
-                QueueShip* target = (dir == IZQUIERDA) ? &colaIzq : &colaDer;
+                QueueShip* target = (dir == LEFT) ? &colaIzq : &colaDer;
 
                 if (enqueue(target, barco)) {
-                    ESP_LOGI(TAG, "Barco %d (%s) -> %s",
-                        barco->id,
-                        shipTypeToString(barco->type),
-                        dirToString(dir));
-
-                    printQueue(&colaIzq);
-                    printQueue(&colaDer);
+                    ESP_LOGI(TAG, "Nuevo barco manual %d (%s) -> %s",
+                        barco->id, shipTypeToString(barco->type), dirToString(dir));
+                    
+                    spawn_ship_thread(barco);
+                    
                     lcd_mostrar_colas(&colaIzq, &colaDer);
                 } else {
-                    /*
-                     * Si no se pudo encolar, se libera la memoria del barco
-                     * para evitar fugas de memoria.
-                     */
+                    vSemaphoreDelete(barco->sem);
                     free(barco);
                 }
             }
         }
     }
+}
+
+void ShipTask(void *parameter) {
+    Ship* barco = (Ship*)parameter;
+
+    // El barco espera en su semáforo privado hasta que el planificador le dé paso
+    if (xSemaphoreTake(barco->sem, portMAX_DELAY)) {
+        // Simulación de cruce (el tiempo real se implementará luego)
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    // El CanalTask (planificador) se encargará de hacer el dequeue y liberar la memoria.
+    // Esta tarea simplemente termina.
+    vTaskDelete(NULL);
 }
 
 /*
@@ -163,14 +213,19 @@ void CanalTask(void *param) {
     Ship* barco;
 
     for (;;) {
+        // Por ahora, un planificador simple que da paso al primero que encuentre
         if (dequeue(&colaIzq, &barco) || dequeue(&colaDer, &barco)) {
 
-            ESP_LOGI(TAG, "Canal: pasando barco %d (%s)",
-                barco->id,
-                shipTypeToString(barco->type));
+            ESP_LOGI(TAG, "Planificador: dando paso a barco %d (%s)",
+                barco->id, shipTypeToString(barco->type));
 
-            vTaskDelay(pdMS_TO_TICKS(3000));
+            // Despertar el hilo del barco
+            xSemaphoreGive(barco->sem);
 
+            // Esperar a que el barco cruce (simulado igual que el ShipTask por ahora)
+            vTaskDelay(pdMS_TO_TICKS(3500)); 
+
+            vSemaphoreDelete(barco->sem);
             free(barco);
             lcd_mostrar_colas(&colaIzq, &colaDer);
         }
@@ -280,6 +335,40 @@ void UartReceiverTask(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
+esp_err_t init_spiffs(void) {
+    ESP_LOGI(TAG, "Initializing SPIFFS");
+
+    esp_vfs_spiffs_conf_t conf = {
+      .base_path = "/spiffs",
+      .partition_label = NULL,
+      .max_files = 5,
+      .format_if_mount_failed = true
+    };
+
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(TAG, "Failed to mount or format filesystem");
+        } else if (ret == ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+        } else {
+            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+        }
+        return ret;
+    }
+
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info(NULL, &total, &used);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+    }
+
+    return ESP_OK;
+}
+
 // ---------------- MAIN ----------------
 /*
  * Punto de entrada principal en ESP-IDF.
@@ -293,9 +382,6 @@ void app_main(void) {
     buttonQueue = xQueueCreate(10, sizeof(int));
 
     init_buttons();
-
-    initQueue(&colaIzq, "COLA IZQUIERDA");
-    initQueue(&colaDer, "COLA DERECHA");
 
     // Initialize both LCDs for scrolling example
     LCD_init(&lcd1, 0x23, 21, 22, 16, 2);
@@ -314,7 +400,7 @@ void app_main(void) {
 
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
     xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, NULL);
-    xTaskCreate(ScrollTask, "Scroll", 2048, NULL, 1, NULL);
+    //xTaskCreate(ScrollTask, "Scroll", 2048, NULL, 1, NULL);
 
     init_uart();
     xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);

@@ -5,5 +5,10 @@ idf_component_register(
         "ship.c"
         "ready_queue.c"
         "HD44780.c"
+        "config_parser.c"
+        "channel.c"
+
         INCLUDE_DIRS "."
 )
+
+spiffs_create_partition_image(storage data FLASH_IN_PROJECT)

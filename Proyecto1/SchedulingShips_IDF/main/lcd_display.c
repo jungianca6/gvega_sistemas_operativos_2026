@@ -25,9 +25,9 @@ void lcd_init(void) {
 // ---------------- UTIL ----------------
 static char shipTypeToChar(ShipType type) {
     switch (type) {
-    case NORMAL:   return 'N';
-    case PESQUERO: return 'P';
-    case PATRULLA: return 'T';
+    case STANDARD:   return 'S';
+    case FISHING: return 'F';
+    case PATROL: return 'P';
     default:       return '?';
     }
 }
