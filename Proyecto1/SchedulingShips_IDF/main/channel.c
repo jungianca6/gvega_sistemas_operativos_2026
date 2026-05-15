@@ -15,12 +15,15 @@ volatile bool emergency_stop = false;
  * - w_parameter: parámetro W para el control de flujo.
  *
  */
-void init_channel(Channel* channel, int length, int speed, int flow_control, int sign_interval, int w_parameter) {
+void init_channel(Channel* channel, int length, int speed, int flow_control,
+    int sign_interval, int w_parameter, SchedulerType scheduler, int quantum_rr) {
     channel->length = length;
     channel->speed = speed;
     channel->flow_control = flow_control;
     channel->sign_interval = sign_interval;
     channel->w_parameter = w_parameter;
+    channel->scheduler = scheduler;
+    channel->quantum_rr = quantum_rr;
 }
 
 void channel_set_global(Channel* ch) {

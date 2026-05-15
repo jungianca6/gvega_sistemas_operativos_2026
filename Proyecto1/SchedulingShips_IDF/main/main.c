@@ -20,6 +20,8 @@
 #include "esp_spiffs.h"
 #include "config_parser.h"
 #include "channel.h"
+#include <string.h>
+
 /*
  * Pines GPIO usados para los botones.
  *
@@ -141,12 +143,14 @@ void CreadorTask(void *parameter) {
             shipSpeeds[FISHING] = appConfig.fishing_speed;
             shipSpeeds[PATROL] = appConfig.patrol_speed;
 
-            init_channel(&mainChannel, 
-                         appConfig.channel_length, 
-                         appConfig.standard_speed, 
-                         appConfig.flow_control, 
-                         appConfig.sign_duration, 
-                         appConfig.parameter_w);
+            init_channel(&mainChannel,
+                         appConfig.channel_length,
+                         appConfig.standard_speed,
+                         appConfig.flow_control,
+                         appConfig.sign_duration,
+                         appConfig.parameter_w,
+                         appConfig.scheduler,
+                         appConfig.quantum_rr);
             channel_set_global(&mainChannel);
         }
     }
@@ -156,8 +160,10 @@ void CreadorTask(void *parameter) {
     initQueue(&colaDer, "COLA DERECHA");
 
     // 3. Poblar barcos iniciales (y crear sus hilos)
-    populate_queue_from_config(&colaIzq, appConfig.queue_left, appConfig.queue_left_count, LEFT, shipSpeeds, &barcoID, spawn_ship_thread);
-    populate_queue_from_config(&colaDer, appConfig.queue_right, appConfig.queue_right_count, RIGHT, shipSpeeds, &barcoID, spawn_ship_thread);
+    populate_queue_from_config(&colaIzq, appConfig.queue_left,  appConfig.queue_left_count,
+                           LEFT,  shipSpeeds, &barcoID, appConfig.scheduler, spawn_ship_thread);
+    populate_queue_from_config(&colaDer, appConfig.queue_right, appConfig.queue_right_count,
+                               RIGHT, shipSpeeds, &barcoID, appConfig.scheduler, spawn_ship_thread);
 
     ESP_LOGI(TAG, "Colas iniciales pobladas. Actualizando LCDs...");
 
@@ -182,11 +188,14 @@ void CreadorTask(void *parameter) {
                 int estado = gpio_get_level(BTN_COLA);
                 Direction dir = estado ? RIGHT : LEFT;
 
-                inicializar_barco(barco, barcoID++, tipo, dir, shipSpeeds[tipo]);
+                int burst    = (tipo == PATROL) ? 3  : (tipo == FISHING) ? 6  : 10;
+                int priority = (tipo == PATROL) ? 0  : (tipo == FISHING) ? 1  : 2;
+                int deadline = (tipo == PATROL) ? 5  : (tipo == FISHING) ? 15 : 30;
+                inicializar_barco(barco, barcoID++, tipo, dir, shipSpeeds[tipo], burst, priority, deadline);
 
                 QueueShip* target = (dir == LEFT) ? &colaIzq : &colaDer;
 
-                if (enqueue(target, barco)) {
+                if (scheduler_enqueue_ordered(target, barco, appConfig.scheduler)) {
                     ESP_LOGI(TAG, "Nuevo barco manual %d (%s) -> %s",
                         barco->id, shipTypeToString(barco->type), dirToString(dir));
                     
@@ -203,10 +212,25 @@ void CreadorTask(void *parameter) {
 }
 
 void ShipTask(void *parameter) {
-    Ship* barco = (Ship*)parameter;
+    Ship* barco = parameter;
 
     // Bloquear hasta que CanalTask dé permiso de cruzar
     xSemaphoreTake(barco->sem, portMAX_DELAY);
+
+    // Restaurar posición si fue evacuado o preemptado (context restore)
+    if (barco->saved_channel_col >= 0) {
+
+        int row = (barco->direction == LEFT) ? 0 : 1;
+
+        lcd_channel_restore_ship(
+            barco,
+            row,
+            barco->saved_channel_col
+        );
+
+        barco->saved_channel_col = -1;
+    }
+
 
     // Calcular el tick de animación escalado por ChannelLength
     int tick_ms = BASE_TICK_MS;
@@ -261,6 +285,29 @@ void ShipTask(void *parameter) {
     // Cruce normal: limpiar y liberar
     lcd_channel_remove_ship(barco);
 
+    // Descontar tiempo transcurrido si aplica RR
+    if (appConfig.scheduler == SCHEDULER_RR) {
+        barco->time_remaining -= appConfig.quantum_rr;
+        if (barco->time_remaining > 0) {
+            // Aún le queda tiempo — re-encolar y crear una nueva tarea para el próximo turno
+            barco->preempted = true;
+            barco->channel_col = -1;
+            vSemaphoreDelete(barco->sem);
+            barco->sem = xSemaphoreCreateBinary();
+
+            QueueShip* q = (barco->direction == LEFT) ? &colaIzq : &colaDer;
+            scheduler_enqueue_ordered(q, barco, SCHEDULER_RR);
+
+            spawn_ship_thread(barco);
+            lcd_mostrar_colas(&colaIzq, &colaDer);
+
+            // Notificar al canal que terminó este turno
+            if (canal_task_handle) xTaskNotifyGive(canal_task_handle);
+            vTaskDelete(NULL);
+            return;
+        }
+    }
+
     if (canal_task_handle) {
         xTaskNotifyGive(canal_task_handle);
     }
@@ -308,6 +355,7 @@ static void handle_emergency_stop(void) {
     // Re-encolar barcos al frente de sus colas con nuevos semáforos y tareas
     for (int i = 0; i < evac_count; i++) {
         Ship* s = evac_ships[i];
+        s->saved_channel_col = s->channel_col;  //GUARDAR posición (el "PCB")
         s->channel_col = -1;
         vSemaphoreDelete(s->sem);
         s->sem = xSemaphoreCreateBinary();
