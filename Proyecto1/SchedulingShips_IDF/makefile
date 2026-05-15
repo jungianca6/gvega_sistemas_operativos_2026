@@ -1,6 +1,6 @@
 # ===== CONFIG =====
 PORT ?= /dev/ttyUSB0
-TARGET ?= esp32
+TARGET ?= esp32c6
 # Try to get IDF_PATH from environment, otherwise use default
 IDF_PATH ?= $(shell echo $$IDF_PATH)
 ifeq ($(IDF_PATH),)
