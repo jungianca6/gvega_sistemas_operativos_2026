@@ -53,7 +53,7 @@ void lcd_channel_advance_ship(Ship* ship);
 void lcd_channel_refresh(void);
 
 //Vuelve a poner un barco evacuado por falta de quantum, o interrupcion
-int lcd_channel_restore_ship(Ship* ship, int row, int col);
+bool lcd_channel_restore_ship(Ship* ship, int row, int col);
 
 /*
  * Verifica si mover el barco por su velocidad causaría colisión.
@@ -89,7 +89,7 @@ void lcd_channel_show_lock(void);
 void lcd_channel_clear_lock(void);
 
 int lcd_channel_evacuate_dir(Ship** out_ships, int max_ships, int row);
-bool lcd_channel_restore_ship(Ship* ship, int row, int col);
+
 void lcd_channel_set_sign(Direction dir);
 void lcd_channel_clear_sign(void);
 
