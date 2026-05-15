@@ -124,6 +124,8 @@ void IRAM_ATTR gpio_isr_handler(void* arg) {
  */
 QueueShip colaIzq;
 QueueShip colaDer;
+static Ship* running_left = NULL;
+static Ship* running_right = NULL;
 
 // Forward declarations
 void ShipTask(void *parameter);
@@ -194,6 +196,70 @@ void CreadorTask(void *parameter) {
                 int deadline = (tipo == PATROL) ? 5  : (tipo == FISHING) ? 15 : 30;
                 inicializar_barco(barco, barcoID++, tipo, dir, shipSpeeds[tipo], burst, priority, deadline);
 
+
+                if (appConfig.scheduler == SCHEDULER_STRN) {
+
+                    Ship* running =
+                        (dir == LEFT)
+                        ? running_left
+                        : running_right;
+
+                    if (
+                        running &&
+                        barco->time_remaining < running->time_remaining
+                    ) {
+
+                        ESP_LOGW(
+                            TAG,
+                            "STRN PREEMPT: nuevo=%d (%d) < running=%d (%d)",
+                            barco->id,
+                            barco->time_remaining,
+                            running->id,
+                            running->time_remaining
+                        );
+
+                        // Guardar contexto
+                        running->saved_channel_col =
+                            running->channel_col;
+
+                        // Sacar del LCD
+                        lcd_channel_remove_ship(running);
+
+                        // Marcar fuera del canal
+                        running->channel_col = -1;
+
+                        // Re-encolar el viejo
+                        QueueShip* old_q =
+                            (running->direction == LEFT)
+                            ? &colaIzq
+                            : &colaDer;
+
+                        scheduler_enqueue_ordered(
+                            old_q,
+                            running,
+                            SCHEDULER_STRN
+                        );
+
+                        // Limpiar running
+                        if (dir == LEFT)
+                            running_left = NULL;
+                        else
+                            running_right = NULL;
+
+                        // IMPORTANTE:
+                        // detener la tarea vieja
+                        vTaskDelete(running->task_handle);
+
+                        // Recrearla luego
+                        spawn_ship_thread(running);
+
+                        lcd_mostrar_colas(
+                            &colaIzq,
+                            &colaDer
+                        );
+                    }
+                }
+
                 QueueShip* target = (dir == LEFT) ? &colaIzq : &colaDer;
 
                 if (scheduler_enqueue_ordered(target, barco, appConfig.scheduler)) {
@@ -245,6 +311,7 @@ void ShipTask(void *parameter) {
     ESP_LOGI(TAG, "ShipTask: barco %d iniciando cruce (speed=%d, tick=%dms, exit_col=%d)",
              barco->id, barco->speed, tick_ms, exit_col);
 
+    int quantum_used = 0;
     // Loop de animación
     while (1) {
         // === EMERGENCY STOP CHECK ===
@@ -277,37 +344,75 @@ void ShipTask(void *parameter) {
         // Avanzar el barco
         lcd_channel_advance_ship(barco);
 
+        if (appConfig.scheduler == SCHEDULER_RR) {
+
+            quantum_used++;
+
+            barco->time_remaining--;
+
+            if (barco->time_remaining <= 0) {
+                break;
+            }
+
+            if (quantum_used >= appConfig.quantum_rr) {
+
+                ESP_LOGI(TAG,
+                    "ShipTask: barco %d PREEMPTADO (quantum agotado)",
+                    barco->id);
+
+                // Guardar contexto
+                barco->saved_channel_col = barco->channel_col;
+
+                // Sacarlo visualmente del canal
+                lcd_channel_remove_ship(barco);
+
+                // Preparar siguiente ejecución
+                barco->preempted = true;
+
+                vSemaphoreDelete(barco->sem);
+                barco->sem = xSemaphoreCreateBinary();
+
+                // Re-encolar
+                QueueShip* q =
+                    (barco->direction == LEFT)
+                    ? &colaIzq
+                    : &colaDer;
+
+                scheduler_enqueue_ordered(
+                    q,
+                    barco,
+                    SCHEDULER_RR
+                );
+
+                // Respawn de la tarea
+                spawn_ship_thread(barco);
+
+                lcd_mostrar_colas(&colaIzq, &colaDer);
+
+                // Avisar a CanalTask
+                if (canal_task_handle) {
+                    xTaskNotifyGive(canal_task_handle);
+                }
+
+                vTaskDelete(NULL);
+                return;
+            }
+        }
+
         // Esperar tick
         vTaskDelay(pdMS_TO_TICKS(tick_ms));
     }
 
     ESP_LOGI(TAG, "ShipTask: barco %d completó el cruce", barco->id);
 
+    // Ya no está ejecutándose
+    if (barco->direction == LEFT)
+        running_left = NULL;
+    else
+        running_right = NULL;
+
     // Cruce normal: limpiar y liberar
     lcd_channel_remove_ship(barco);
-
-    // Descontar tiempo transcurrido si aplica RR
-    if (appConfig.scheduler == SCHEDULER_RR) {
-        barco->time_remaining -= appConfig.quantum_rr;
-        if (barco->time_remaining > 0) {
-            // Aún le queda tiempo — re-encolar y crear una nueva tarea para el próximo turno
-            barco->preempted = true;
-            barco->channel_col = -1;
-            vSemaphoreDelete(barco->sem);
-            barco->sem = xSemaphoreCreateBinary();
-
-            QueueShip* q = (barco->direction == LEFT) ? &colaIzq : &colaDer;
-            scheduler_enqueue_ordered(q, barco, SCHEDULER_RR);
-
-            spawn_ship_thread(barco);
-            lcd_mostrar_colas(&colaIzq, &colaDer);
-
-            // Notificar al canal que terminó este turno
-            if (canal_task_handle) xTaskNotifyGive(canal_task_handle);
-            vTaskDelete(NULL);
-            return;
-        }
-    }
 
     if (canal_task_handle) {
         xTaskNotifyGive(canal_task_handle);
@@ -426,6 +531,10 @@ static bool fairness_dispatch(Direction current_dir) {
         }
 
         lcd_channel_place_ship(barco, row);
+        if (current_dir == LEFT)
+            running_left = barco;
+        else
+            running_right = barco;
         xSemaphoreGive(barco->sem);
         lcd_mostrar_colas(&colaIzq, &colaDer);
 
@@ -633,7 +742,7 @@ void init_uart() {
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
+        .source_clk = UART_SCLK_RTC,
     };
     uart_param_config(UART_PORT_NUM, &uart_config);
     uart_driver_install(UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, 0);
