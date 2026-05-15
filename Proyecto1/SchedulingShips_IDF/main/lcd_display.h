@@ -93,6 +93,16 @@ int lcd_channel_evacuate_dir(Ship** out_ships, int max_ships, int row);
 void lcd_channel_set_sign(Direction dir);
 void lcd_channel_clear_sign(void);
 
+/**
+ * Gets a snapshot of all active ships in the channel.
+ * @param out_ships Array where pointers to ships will be stored
+ * @param out_cols Array where the corresponding columns will be stored
+ * @param out_rows Array where the corresponding rows will be stored
+ * @param max_ships Maximum number of ships to extract
+ * @return Number of active ships currently in the channel
+ */
+int lcd_channel_get_all_ships(Ship** out_ships, int* out_cols, int* out_rows, int max_ships);
+
 /* Event group global para sincronización del canal */
 extern EventGroupHandle_t channel_event_group;
 
