@@ -805,7 +805,7 @@ static const char* get_flow_control_string(FlowControl fc) {
         default: return "UNKNOWN";
     }
 }
-
+/*
 static cJSON* generate_system_state_json(void) {
     cJSON *root = cJSON_CreateObject();
     if (!root) return NULL;
@@ -894,7 +894,7 @@ void GuiStateTask(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
-
+*/
 // ---------------- MAIN ----------------
 /*
  * Punto de entrada principal en ESP-IDF.
@@ -919,7 +919,7 @@ void app_main(void) {
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
     xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, &canal_task_handle);
 
-    init_uart();
-    xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);
-    xTaskCreate(GuiStateTask, "GuiState", 8192, NULL, 1, NULL);
+    //init_uart();
+    //xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);
+    //xTaskCreate(GuiStateTask, "GuiState", 8192, NULL, 1, NULL);
 }
