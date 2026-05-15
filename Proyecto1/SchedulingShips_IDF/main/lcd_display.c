@@ -17,8 +17,8 @@
 #define LCD_ADDR_IZQ     0x23
 #define LCD_ADDR_DER     0x26
 #define LCD_ADDR_CHANNEL 0x27
-#define SDA_PIN  21
-#define SCL_PIN  22
+#define SDA_PIN  6
+#define SCL_PIN  7
 
 /* ---------- CANAL: CONFIGURACIÓN ---------- */
 #define MAX_SHIPS_IN_CHANNEL 16
