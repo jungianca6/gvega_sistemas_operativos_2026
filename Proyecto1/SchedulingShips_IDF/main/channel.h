@@ -48,7 +48,7 @@ extern Channel* g_channel;
 extern volatile bool emergency_stop;
 
 void init_channel(Channel* channel, int length, int speed,
-    int flow_control, int sign_interval, int w_parameter, int scheduler, int quantum_rr);
+    int flow_control, int sign_interval, int w_parameter, SchedulerType scheduler, int quantum_rr);
 void channel_set_global(Channel* ch);
 
 #endif // CHANNEL_H

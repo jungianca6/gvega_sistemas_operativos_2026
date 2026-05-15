@@ -16,7 +16,7 @@ volatile bool emergency_stop = false;
  *
  */
 void init_channel(Channel* channel, int length, int speed, int flow_control,
-    int sign_interval, int w_parameter, int scheduler, int quantum_rr) {
+    int sign_interval, int w_parameter, SchedulerType scheduler, int quantum_rr) {
     channel->length = length;
     channel->speed = speed;
     channel->flow_control = flow_control;
