@@ -1,4 +1,4 @@
-FlowControl:Fairness
+FlowControl:Sign
 ChannelLength:100
 Standard Speed: 1
 FishingSpeed: 2

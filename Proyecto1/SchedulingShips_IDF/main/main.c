@@ -276,17 +276,34 @@ void ShipTask(void *parameter) {
  * evacúa barcos del canal, los re-encola, muestra candado,
  * y espera hasta que emergency_stop se desactive.
  */
-static void handle_emergency_stop(int sent) {
+static Ship* paused_left[16];
+static int paused_left_count = 0;
+static Ship* paused_right[16];
+static int paused_right_count = 0;
+
+static void handle_emergency_stop(void) {
     ESP_LOGW(TAG, "=== PARADA DE EMERGENCIA ACTIVADA ===");
 
-    // Esperar que todos los ShipTasks activos notifiquen su salida
-    for (int i = 0; i < sent; i++) {
-        ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(2000));
-    }
+    // Esperar un momento para que los ShipTasks reaccionen y terminen
+    vTaskDelay(pdMS_TO_TICKS(600));
+
+    // Limpiar notificaciones pendientes
+    while (ulTaskNotifyTake(pdTRUE, 0) > 0);
 
     // Evacuar barcos del canal LCD
-    Ship* evac_ships[16];
+    Ship* evac_ships[32];
     int evac_count = lcd_channel_evacuate_all(evac_ships, 16);
+
+    // Agregar los pausados por la señal
+    for (int i = 0; i < paused_left_count; i++) {
+        evac_ships[evac_count++] = paused_left[i];
+    }
+    paused_left_count = 0;
+
+    for (int i = 0; i < paused_right_count; i++) {
+        evac_ships[evac_count++] = paused_right[i];
+    }
+    paused_right_count = 0;
 
     // Re-encolar barcos al frente de sus colas con nuevos semáforos y tareas
     for (int i = 0; i < evac_count; i++) {
@@ -332,7 +349,6 @@ static bool fairness_dispatch(Direction current_dir) {
     // Despachar hasta W barcos
     while (sent < w) {
         if (emergency_stop) {
-            handle_emergency_stop(sent);
             return true;
         }
 
@@ -347,7 +363,6 @@ static bool fairness_dispatch(Direction current_dir) {
         while (!lcd_channel_entry_free(row)) {
             if (emergency_stop) {
                 enqueue_front(source, barco);
-                handle_emergency_stop(sent);
                 return true;
             }
             xEventGroupWaitBits(channel_event_group,
@@ -358,7 +373,6 @@ static bool fairness_dispatch(Direction current_dir) {
 
         if (emergency_stop) {
             enqueue_front(source, barco);
-            handle_emergency_stop(sent);
             return true;
         }
 
@@ -375,7 +389,6 @@ static bool fairness_dispatch(Direction current_dir) {
     for (int i = 0; i < sent; i++) {
         ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
         if (emergency_stop) {
-            handle_emergency_stop(sent - (i + 1));
             return true;
         }
     }
@@ -384,6 +397,61 @@ static bool fairness_dispatch(Direction current_dir) {
         ESP_LOGI(TAG, "CanalTask: %d barcos de dirección %s completaron el cruce",
                  sent, dirToString(current_dir));
     }
+    return false;
+}
+
+/*
+ * Algoritmo Sign (Señal/Semáforo): alterna por tiempo, guarda posiciones.
+ */
+static bool sign_dispatch(Direction current_dir) {
+    int duration = g_channel->sign_interval;
+    QueueShip* source = (current_dir == LEFT) ? &colaIzq : &colaDer;
+    int row = (current_dir == LEFT) ? 0 : 1;
+
+    Ship** my_paused = (current_dir == LEFT) ? paused_left : paused_right;
+    int* my_paused_count = (current_dir == LEFT) ? &paused_left_count : &paused_right_count;
+
+    ESP_LOGI(TAG, "CanalTask [Sign]: turno para dirección %s (Duración=%d ticks)",
+             dirToString(current_dir), duration);
+
+    lcd_channel_set_sign(current_dir);
+
+    // Restaurar barcos pausados
+    for (int i = 0; i < *my_paused_count; i++) {
+        lcd_channel_restore_ship(my_paused[i], row, my_paused[i]->channel_col);
+    }
+    *my_paused_count = 0;
+
+    int tick_ms = BASE_TICK_MS;
+    if (g_channel) {
+        tick_ms = BASE_TICK_MS * g_channel->length / 100;
+    }
+    if (tick_ms < 50) tick_ms = 50;
+
+    for (int tick = 0; tick < duration; tick++) {
+        if (emergency_stop) return true;
+
+        if (source->size > 0 && lcd_channel_entry_free(row)) {
+            Ship* barco;
+            if (dequeue(source, &barco)) {
+                lcd_channel_place_ship(barco, row);
+                xSemaphoreGive(barco->sem);
+                lcd_mostrar_colas(&colaIzq, &colaDer);
+            }
+        }
+
+        // Limpiar notificaciones de barcos que terminen (evitar acumulación)
+        ulTaskNotifyTake(pdTRUE, 0);
+
+        vTaskDelay(pdMS_TO_TICKS(tick_ms));
+    }
+
+    if (emergency_stop) return true;
+
+    // Pausar y evacuar visualmente los que sigan en canal de esta dirección
+    *my_paused_count = lcd_channel_evacuate_dir(my_paused, 16, row);
+
+    lcd_channel_clear_sign();
     return false;
 }
 
@@ -403,7 +471,7 @@ void CanalTask(void *param) {
     for (;;) {
         // Chequear emergencia antes de cada ciclo
         if (emergency_stop) {
-            handle_emergency_stop(0);
+            handle_emergency_stop();
             continue;
         }
 
@@ -415,11 +483,13 @@ void CanalTask(void *param) {
                 }
                 break;
             }
-            case SIGN:
-                // TODO: implementar algoritmo Sign
-                ESP_LOGW(TAG, "Algoritmo SIGN no implementado aún");
-                vTaskDelay(pdMS_TO_TICKS(1000));
+            case SIGN: {
+                bool interrupted = sign_dispatch(current_dir);
+                if (!interrupted) {
+                    current_dir = (current_dir == LEFT) ? RIGHT : LEFT;
+                }
                 break;
+            }
             case TICO:
                 // TODO: implementar algoritmo Tico
                 ESP_LOGW(TAG, "Algoritmo TICO no implementado aún");
@@ -431,32 +501,7 @@ void CanalTask(void *param) {
     }
 }
 
-/*
- * Tarea de prueba para parada de emergencia.
- * Cada 5 ticks alterna emergency_stop para simular sensor ultrasónico.
- */
-void EmergencyTestTask(void *param) {
-    int tick_ms = BASE_TICK_MS;
-    if (g_channel) {
-        tick_ms = BASE_TICK_MS * g_channel->length / 100;
-    }
-    if (tick_ms < 50) tick_ms = 50;
 
-    for (;;) {
-        // Esperar 5 ticks
-        vTaskDelay(pdMS_TO_TICKS(tick_ms * 5));
-
-        if (!emergency_stop) {
-            ESP_LOGW(TAG, ">>> EMERGENCIA: Objeto detectado — ACTIVANDO parada <<<");
-            emergency_stop = true;
-            // Despertar cualquier ShipTask bloqueada
-            xEventGroupSetBits(channel_event_group, BIT_SHIP_MOVED);
-        } else {
-            ESP_LOGW(TAG, ">>> EMERGENCIA: Despejado — DESACTIVANDO parada <<<");
-            emergency_stop = false;
-        }
-    }
-}
 
 
 // ---------------- INIT GPIO ----------------
@@ -616,9 +661,6 @@ void app_main(void) {
  
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
     xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, &canal_task_handle);
-
-    // Tarea de prueba: alterna emergency_stop cada 5 ticks
-    xTaskCreate(EmergencyTestTask, "EmergTest", 2048, NULL, 1, NULL);
 
     init_uart();
     xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);

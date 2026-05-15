@@ -85,6 +85,11 @@ void lcd_channel_show_lock(void);
 /** Limpia el ícono de candado del LCD del canal. */
 void lcd_channel_clear_lock(void);
 
+int lcd_channel_evacuate_dir(Ship** out_ships, int max_ships, int row);
+bool lcd_channel_restore_ship(Ship* ship, int row, int col);
+void lcd_channel_set_sign(Direction dir);
+void lcd_channel_clear_sign(void);
+
 /* Event group global para sincronización del canal */
 extern EventGroupHandle_t channel_event_group;
 

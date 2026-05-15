@@ -36,8 +36,12 @@ uint8_t Patrol[]   = { 0x04, 0x0E, 0x1F, 0x0E, 0x04, 0x11, 0x1F, 0x0E };
 uint8_t Fishing[]  = { 0x04, 0x0A, 0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11 };
 uint8_t Standard[] = { 0x04, 0x06, 0x07, 0x07, 0x04, 0x15, 0x1F, 0x0E };
 uint8_t Lock[]     = { 0x0E, 0x11, 0x11, 0x1F, 0x1B, 0x1B, 0x1F, 0x00 };
+uint8_t Bell[]     = { 0x04, 0x0E, 0x0E, 0x0E, 0x1F, 0x00, 0x04, 0x00 };
 
 /* ---------- CANAL: ESTADO COMPARTIDO ---------- */
+
+static bool sign_active = false;
+static Direction sign_dir = LEFT;
 
 /*
  * Slot que representa un barco activo dentro del canal.
@@ -142,6 +146,7 @@ void lcd_channel_init(void) {
     LCD_createChar(&lcd_channel, 2, Fishing);
     LCD_createChar(&lcd_channel, 3, Standard);
     LCD_createChar(&lcd_channel, 4, Lock);
+    LCD_createChar(&lcd_channel, 5, Bell);
 
     LCD_clearScreen(&lcd_channel);
 
@@ -208,6 +213,17 @@ void lcd_channel_refresh(void) {
                 LCD_setCursor(&lcd_channel, col, row);
                 LCD_writeChar(&lcd_channel, (unsigned char)ship_char(channel_slots[i].ship->type));
             }
+        }
+    }
+
+    // Dibujar señal si está activa
+    if (sign_active) {
+        if (sign_dir == LEFT) {
+            LCD_setCursor(&lcd_channel, 0, 1);
+            LCD_writeChar(&lcd_channel, 5); // Bell
+        } else {
+            LCD_setCursor(&lcd_channel, 15, 0);
+            LCD_writeChar(&lcd_channel, 5); // Bell
         }
     }
 }
@@ -413,4 +429,61 @@ void lcd_channel_clear_lock(void) {
     LCD_setCursor(&lcd_channel, 8, 1);
     LCD_writeChar(&lcd_channel, ' ');
     ESP_LOGI(TAG, "Canal DESBLOQUEADO - candado removido");
+}
+
+int lcd_channel_evacuate_dir(Ship** out_ships, int max_ships, int row) {
+    int count = 0;
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL && count < max_ships; i++) {
+        if (channel_slots[i].active && channel_slots[i].row == row) {
+            out_ships[count++] = channel_slots[i].ship;
+            channel_slots[i].ship = NULL;
+            channel_slots[i].col = -1;
+            channel_slots[i].row = -1;
+            channel_slots[i].active = false;
+        }
+    }
+    lcd_channel_refresh();
+    xSemaphoreGive(channel_mutex);
+    if (count > 0) {
+        xEventGroupSetBits(channel_event_group, BIT_SHIP_MOVED);
+    }
+    return count;
+}
+
+bool lcd_channel_restore_ship(Ship* ship, int row, int col) {
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+    bool placed = false;
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+        if (!channel_slots[i].active) {
+            channel_slots[i].ship = ship;
+            channel_slots[i].col = col;
+            channel_slots[i].row = row;
+            channel_slots[i].active = true;
+            ship->channel_col = col;
+            placed = true;
+            break;
+        }
+    }
+    lcd_channel_refresh();
+    xSemaphoreGive(channel_mutex);
+    if (placed) {
+        xEventGroupSetBits(channel_event_group, BIT_SHIP_MOVED);
+    }
+    return placed;
+}
+
+void lcd_channel_set_sign(Direction dir) {
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+    sign_active = true;
+    sign_dir = dir;
+    lcd_channel_refresh();
+    xSemaphoreGive(channel_mutex);
+}
+
+void lcd_channel_clear_sign(void) {
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+    sign_active = false;
+    lcd_channel_refresh();
+    xSemaphoreGive(channel_mutex);
 }
