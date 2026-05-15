@@ -490,3 +490,18 @@ void lcd_channel_clear_sign(void) {
     lcd_channel_refresh();
     xSemaphoreGive(channel_mutex);
 }
+
+int lcd_channel_get_all_ships(Ship** out_ships, int* out_cols, int* out_rows, int max_ships) {
+    int count = 0;
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL && count < max_ships; i++) {
+        if (channel_slots[i].active && channel_slots[i].ship != NULL) {
+            if (out_ships) out_ships[count] = channel_slots[i].ship;
+            if (out_cols) out_cols[count] = channel_slots[i].col;
+            if (out_rows) out_rows[count] = channel_slots[i].row;
+            count++;
+        }
+    }
+    xSemaphoreGive(channel_mutex);
+    return count;
+}

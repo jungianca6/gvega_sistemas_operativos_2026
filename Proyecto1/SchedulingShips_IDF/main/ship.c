@@ -50,9 +50,9 @@ void inicializar_barco(
  */
 const char* shipTypeToString(ShipType type) {
     switch(type) {
-    case STANDARD: return "STD";
-    case FISHING: return "FHS";
-    case PATROL: return "PTR";
+    case STANDARD: return "STANDARD";
+    case FISHING: return "FISHING";
+    case PATROL: return "PATROL";
     default: return "?";
     }
 }

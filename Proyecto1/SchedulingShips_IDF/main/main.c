@@ -21,6 +21,7 @@
 #include "config_parser.h"
 #include "channel.h"
 #include <string.h>
+#include "cJSON.h"
 
 /*
  * Pines GPIO usados para los botones.
@@ -43,7 +44,7 @@
 #define BUF_SIZE 1024
 
 /* Intervalo base de animación en ms. Se escala con ChannelLength. */
-#define BASE_TICK_MS 1000
+#define BASE_TICK_MS 500
 
 static const char *TAG = "MAIN";
 
@@ -686,6 +687,105 @@ esp_err_t init_spiffs(void) {
     return ESP_OK;
 }
 
+// ---------------- GUI STATE TASK ----------------
+static const char* get_flow_control_string(FlowControl fc) {
+    switch(fc) {
+        case FAIRNESS: return "FAIRNESS";
+        case SIGN: return "SIGN";
+        case TICO: return "TICO";
+        default: return "UNKNOWN";
+    }
+}
+
+static cJSON* generate_system_state_json(void) {
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return NULL;
+
+    cJSON_AddStringToObject(root, "scheduler", scheduler_to_string(appConfig.scheduler));
+    cJSON_AddStringToObject(root, "flow_control", get_flow_control_string(g_channel ? g_channel->flow_control : appConfig.flow_control));
+
+    cJSON *config = cJSON_CreateObject();
+    if (config) {
+        cJSON_AddNumberToObject(config, "Channel Length", appConfig.channel_length);
+        cJSON_AddNumberToObject(config, "Standard Speed", appConfig.standard_speed);
+        cJSON_AddNumberToObject(config, "Fishing Speed", appConfig.fishing_speed);
+        cJSON_AddNumberToObject(config, "Patrol Speed", appConfig.patrol_speed);
+        cJSON_AddNumberToObject(config, "Quantum RR", appConfig.quantum_rr);
+        cJSON_AddNumberToObject(config, "Parameter W", appConfig.parameter_w);
+        cJSON_AddNumberToObject(config, "Sign Duration", appConfig.sign_duration);
+        cJSON_AddItemToObject(root, "config", config);
+    }
+
+    // Left Queue
+    cJSON *left_q_array = cJSON_CreateArray();
+    if (left_q_array && colaIzq.front) {
+        Node *cur = colaIzq.front;
+        while (cur) {
+            cJSON *ship_obj = cJSON_CreateObject();
+            cJSON_AddNumberToObject(ship_obj, "id", cur->ship->id);
+            cJSON_AddStringToObject(ship_obj, "type", shipTypeToString(cur->ship->type));
+            cJSON_AddStringToObject(ship_obj, "state", "READY");
+            cJSON_AddItemToArray(left_q_array, ship_obj);
+            cur = cur->next;
+        }
+    }
+    if (left_q_array) cJSON_AddItemToObject(root, "left_queue", left_q_array);
+
+    // Right Queue
+    cJSON *right_q_array = cJSON_CreateArray();
+    if (right_q_array && colaDer.front) {
+        Node *cur = colaDer.front;
+        while (cur) {
+            cJSON *ship_obj = cJSON_CreateObject();
+            cJSON_AddNumberToObject(ship_obj, "id", cur->ship->id);
+            cJSON_AddStringToObject(ship_obj, "type", shipTypeToString(cur->ship->type));
+            cJSON_AddStringToObject(ship_obj, "state", "READY");
+            cJSON_AddItemToArray(right_q_array, ship_obj);
+            cur = cur->next;
+        }
+    }
+    if (right_q_array) cJSON_AddItemToObject(root, "right_queue", right_q_array);
+
+    // Channel Ships
+    cJSON *channel_ships_array = cJSON_CreateArray();
+    if (channel_ships_array) {
+        Ship* active_ships[16];
+        int cols[16];
+        int rows[16];
+        int count = lcd_channel_get_all_ships(active_ships, cols, rows, 16);
+        for (int i = 0; i < count; i++) {
+            cJSON *ship_obj = cJSON_CreateObject();
+            cJSON_AddNumberToObject(ship_obj, "id", active_ships[i]->id);
+            cJSON_AddStringToObject(ship_obj, "type", shipTypeToString(active_ships[i]->type));
+            cJSON_AddStringToObject(ship_obj, "direction", rows[i] == 0 ? "RIGHT" : "LEFT"); // row 0 is left->right (RIGHT dir in gui maybe? Wait, dirToString)
+            cJSON_AddNumberToObject(ship_obj, "position", cols[i]);
+            cJSON_AddStringToObject(ship_obj, "state", "RUNNING");
+            cJSON_AddItemToArray(channel_ships_array, ship_obj);
+        }
+        cJSON_AddItemToObject(root, "channel_ships", channel_ships_array);
+    }
+
+    return root;
+}
+
+void GuiStateTask(void *pvParameters) {
+    for (;;) {
+        cJSON *state = generate_system_state_json();
+        if (state) {
+            char *json_str = cJSON_PrintUnformatted(state);
+            if (json_str) {
+                // Agregar newline al final
+                char newline[] = "\n";
+                uart_write_bytes(UART_PORT_NUM, json_str, strlen(json_str));
+                uart_write_bytes(UART_PORT_NUM, newline, 1);
+                free(json_str);
+            }
+            cJSON_Delete(state);
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
 // ---------------- MAIN ----------------
 /*
  * Punto de entrada principal en ESP-IDF.
@@ -712,4 +812,5 @@ void app_main(void) {
 
     init_uart();
     xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);
+    xTaskCreate(GuiStateTask, "GuiState", 8192, NULL, 1, NULL);
 }
