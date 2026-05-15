@@ -33,7 +33,7 @@ void inicializar_barco(
 
     barco->priority = priority;
     barco->deadline = deadline;
-
+    barco->saved_channel_col = -1;
     barco->sem = xSemaphoreCreateBinary();
 
     barco->channel_col = -1;

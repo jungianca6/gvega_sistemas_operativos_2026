@@ -217,6 +217,21 @@ void ShipTask(void *parameter) {
     // Bloquear hasta que CanalTask dé permiso de cruzar
     xSemaphoreTake(barco->sem, portMAX_DELAY);
 
+    // Restaurar posición si fue evacuado o preemptado (context restore)
+    if (barco->saved_channel_col >= 0) {
+
+        int row = (barco->direction == LEFT) ? 0 : 1;
+
+        lcd_channel_restore_ship(
+            barco,
+            row,
+            barco->saved_channel_col
+        );
+
+        barco->saved_channel_col = -1;
+    }
+
+
     // Calcular el tick de animación escalado por ChannelLength
     int tick_ms = BASE_TICK_MS;
     if (g_channel) {
@@ -323,6 +338,7 @@ static void handle_emergency_stop(int sent) {
     // Re-encolar barcos al frente de sus colas con nuevos semáforos y tareas
     for (int i = 0; i < evac_count; i++) {
         Ship* s = evac_ships[i];
+        s->saved_channel_col = s->channel_col;  //GUARDAR posición (el "PCB")
         s->channel_col = -1;
         vSemaphoreDelete(s->sem);
         s->sem = xSemaphoreCreateBinary();

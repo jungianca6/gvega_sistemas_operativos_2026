@@ -46,6 +46,7 @@ typedef struct Ship {
     int deadline;
     int priority;
     bool preempted;
+    int saved_channel_col; // Donde estaba el barco antes de ser preemptado
     SemaphoreHandle_t sem; // Semáforo para controlar el turno
     int channel_col;              // Posición actual en el LCD del canal (0-15), -1 si no está en canal
     TaskHandle_t task_handle;     // Handle de la tarea FreeRTOS de este barco

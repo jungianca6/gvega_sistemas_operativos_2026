@@ -347,6 +347,38 @@ bool lcd_check_pos(Ship* ship) {
     return safe;
 }
 
+int lcd_channel_restore_ship(Ship* ship, int row, int col) {
+
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL; i++) {
+
+        if (!channel_slots[i].active) {
+
+            channel_slots[i].ship = ship;
+            channel_slots[i].col = col;
+            channel_slots[i].row = row;
+            channel_slots[i].active = true;
+
+            ship->channel_col = col;
+
+            ESP_LOGI(TAG,
+                "Canal: barco %d restaurado row=%d col=%d",
+                ship->id, row, col);
+
+            lcd_channel_refresh();
+
+            xSemaphoreGive(channel_mutex);
+
+            return col;
+        }
+    }
+
+    xSemaphoreGive(channel_mutex);
+
+    return -1;
+}
+
 bool lcd_channel_entry_free(int row) {
     int entry_col = (row == 0) ? 0 : 15;
     bool free = true;

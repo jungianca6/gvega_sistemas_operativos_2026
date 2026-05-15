@@ -97,7 +97,7 @@ esp_err_t parseConfigFile(const char* path, AppConfig* config) {
                 config->scheduler = SCHEDULER_EDF;
         }
     }
-
+    if (config->quantum_rr == 0) config->quantum_rr = 1;
     fclose(f);
     ESP_LOGI(TAG, "Configuration loaded successfully from %s", path);
     return ESP_OK;
