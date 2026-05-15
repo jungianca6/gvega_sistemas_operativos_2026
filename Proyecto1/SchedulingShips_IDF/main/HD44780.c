@@ -159,3 +159,11 @@ static void LCD_writeByte(LCD_t* lcd, uint8_t data, uint8_t mode)
     LCD_writeNibble(lcd, data & 0xF0, mode);
     LCD_writeNibble(lcd, (data << 4) & 0xF0, mode);
 }
+void LCD_createChar(LCD_t* lcd, uint8_t location, uint8_t charmap[])
+{
+    location &= 0x07; // We only have 8 locations 0-7
+    LCD_writeByte(lcd, 0x40 | (location << 3), LCD_COMMAND);
+    for (int i = 0; i < 8; i++) {
+        LCD_writeByte(lcd, charmap[i], LCD_WRITE);
+    }
+}

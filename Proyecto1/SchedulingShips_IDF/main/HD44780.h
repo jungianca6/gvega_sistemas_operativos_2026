@@ -44,4 +44,9 @@ void LCD_writeChar(LCD_t* lcd, char c);
  */
 void LCD_writeStr(LCD_t* lcd, char* str);
 
+/**
+ * @brief Create a custom character in CGRAM.
+ */
+void LCD_createChar(LCD_t* lcd, uint8_t location, uint8_t charmap[]);
+
 #endif

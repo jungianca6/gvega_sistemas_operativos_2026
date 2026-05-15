@@ -148,6 +148,9 @@ void CreadorTask(void *parameter) {
     populate_queue_from_config(&colaIzq, appConfig.queue_left, appConfig.queue_left_count, LEFT, shipSpeeds, &barcoID, spawn_ship_thread);
     populate_queue_from_config(&colaDer, appConfig.queue_right, appConfig.queue_right_count, RIGHT, shipSpeeds, &barcoID, spawn_ship_thread);
 
+    ESP_LOGI(TAG, "Colas iniciales pobladas. Actualizando LCDs...");
+    lcd_mostrar_colas(&colaIzq, &colaDer);
+
     int pin;
     for (;;) {
         if (xSemaphoreTake(buttonSemaphore, portMAX_DELAY)) {
@@ -382,24 +385,12 @@ void app_main(void) {
     buttonQueue = xQueueCreate(10, sizeof(int));
 
     init_buttons();
-
-    // Initialize both LCDs for scrolling example
-    LCD_init(&lcd1, 0x23, 21, 22, 16, 2);
-    LCD_init(&lcd2, 0x26, 21, 22, 16, 2);
-
-    // Also initialize the main LCD abstraction for ship tracking
+ 
+    // Initialize the main LCD abstraction for ship tracking
     lcd_init();
-
-    LCD_clearScreen(&lcd1);
-    LCD_clearScreen(&lcd2);
-
-    LCD_setCursor(&lcd1, 0, 1);
-    LCD_writeStr(&lcd1, "LCD 1 (0x23)");
-    LCD_setCursor(&lcd2, 0, 0);
-    LCD_writeStr(&lcd2, "LCD 2 (0x26)");
-
+ 
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
-    xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, NULL);
+    //xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, NULL);
     //xTaskCreate(ScrollTask, "Scroll", 2048, NULL, 1, NULL);
 
     init_uart();

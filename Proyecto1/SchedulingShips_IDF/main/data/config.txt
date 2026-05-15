@@ -3,8 +3,9 @@ ChannelLength:100
 Standard Speed: 1
 FishingSpeed: 2
 PatrolSpeed: 3
-QueueLeft: F,S,P,P,F,S
-QueueRight:P,F,F,S,S,P
+QueueLeft: F,S,F,P,F,S
+QueueRight:S,F,F,S,S,P
 SignDuration: 4
 ParameterW: 2
 QuantumRR: 1
+
