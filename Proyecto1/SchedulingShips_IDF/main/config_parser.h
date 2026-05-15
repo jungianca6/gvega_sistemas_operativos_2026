@@ -5,6 +5,7 @@
 #include "channel.h"
 #include "ready_queue.h"
 #include "esp_err.h"
+#include "scheduler.h"
 
 #define MAX_PRESET_SHIPS 20
 
@@ -21,6 +22,7 @@ typedef struct {
     int sign_duration;
     int parameter_w;
     int quantum_rr;
+    SchedulerType scheduler;
 } AppConfig;
 
 /**
@@ -42,6 +44,8 @@ esp_err_t parseConfigFile(const char* path, AppConfig* config);
  * @param speeds Pointer to speeds array (ordered by ShipType index: STANDARD, FISHING, PATROL)
  * @param id_start Pointer to the current boat ID counter.
  */
-void populate_queue_from_config(QueueShip* q, ShipType* types, int count, Direction dir, int* speeds, int* id_start, void (*create_task)(void*));
+void populate_queue_from_config(QueueShip* q, ShipType* types, int count,
+    Direction dir, int* speeds, int* id_start,
+    SchedulerType scheduler, void (*create_task)(void*));
 
 #endif // CONFIG_PARSER_H

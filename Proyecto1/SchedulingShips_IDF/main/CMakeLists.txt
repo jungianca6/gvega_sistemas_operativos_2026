@@ -7,7 +7,7 @@ idf_component_register(
         "HD44780.c"
         "config_parser.c"
         "channel.c"
-
+        "scheduler.c"
         INCLUDE_DIRS "."
 )
 

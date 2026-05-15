@@ -77,6 +77,24 @@ esp_err_t parseConfigFile(const char* path, AppConfig* config) {
             }
             if (is_left) config->queue_left_count = count;
             else config->queue_right_count = count;
+        } else if (strcmp(key, "Scheduler") == 0) {
+            if (strcasecmp(value, "FCFS") == 0)
+                config->scheduler = SCHEDULER_FCFS;
+
+            else if (strcasecmp(value, "RR") == 0)
+                config->scheduler = SCHEDULER_RR;
+
+            else if (strcasecmp(value, "PRIORITY") == 0)
+                config->scheduler = SCHEDULER_PRIORITY;
+
+            else if (strcasecmp(value, "SJF") == 0)
+                config->scheduler = SCHEDULER_SJF;
+
+            else if (strcasecmp(value, "STRN") == 0)
+                config->scheduler = SCHEDULER_STRN;
+
+            else if (strcasecmp(value, "EDF") == 0)
+                config->scheduler = SCHEDULER_EDF;
         }
     }
 
@@ -85,16 +103,21 @@ esp_err_t parseConfigFile(const char* path, AppConfig* config) {
     return ESP_OK;
 }
 
-void populate_queue_from_config(QueueShip* q, ShipType* types, int count, Direction dir, int* speeds, int* id_start, void (*create_task)(void*)) {
+void populate_queue_from_config(QueueShip* q, ShipType* types, int count,
+    Direction dir, int* speeds, int* id_start,
+    SchedulerType scheduler, void (*create_task)(void*)) {
     for (int i = 0; i < count; i++) {
         Ship* barco = malloc(sizeof(Ship));
         if (!barco) break;
         
         ShipType type = types[i];
         int speed = speeds[type];
-        
-        inicializar_barco(barco, (*id_start)++, type, dir, speed);
-        if (enqueue(q, barco)) {
+
+        int burst    = (type == PATROL) ? 3  : (type == FISHING) ? 6  : 10;
+        int priority = (type == PATROL) ? 0  : (type == FISHING) ? 1  : 2;
+        int deadline = (type == PATROL) ? 5  : (type == FISHING) ? 15 : 30;
+        inicializar_barco(barco, (*id_start)++, type, dir, speed, burst, priority, deadline);
+        if (scheduler_enqueue_ordered(q, barco, scheduler)) {
             if (create_task) {
                 create_task(barco);
             }

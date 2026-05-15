@@ -1,4 +1,5 @@
 FlowControl:Fairness
+Scheduler: PRIORITY
 ChannelLength:100
 Standard Speed: 1
 FishingSpeed: 2
