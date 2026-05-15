@@ -1,131 +1,459 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-import serial
-import serial.tools.list_ports
 
-class BoatControllerGUI:
+# =========================================================
+# CONFIGURACION GENERAL GUI
+# =========================================================
+
+WINDOW_WIDTH = 1400
+WINDOW_HEIGHT = 800
+
+# Coordenadas del canal
+CHANNEL_X1 = 350
+CHANNEL_X2 = 1050
+CHANNEL_Y = 400
+
+# Canal discreto
+CHANNEL_CELLS = 12
+CELL_SIZE = 55
+
+# Tamaño visual barcos
+SHIP_WIDTH = 40
+SHIP_HEIGHT = 20
+
+# =========================================================
+# ESTADO GLOBAL DEL SISTEMA
+# =========================================================
+#
+# IMPORTANTE:
+# ---------------------------------------------------------
+# Este diccionario eventualmente sera actualizado por:
+#
+# - UART
+# - Serial
+# - Socket
+# - Pipe
+# - JSON
+#
+# proveniente del ESP32/FreeRTOS.
+#
+# LA GUI NO DEBE IMPLEMENTAR LOGICA DE SCHEDULING.
+# SOLO DEBE REPRESENTAR VISUALMENTE EL ESTADO.
+#
+# =========================================================
+
+system_state = {
+
+    # ---------------------------------------------
+    # CONFIGURACION GENERAL
+    # ---------------------------------------------
+
+    "scheduler": "RR",
+
+    "flow_control": "FAIRNESS",
+
+    "config": {
+
+        "Channel Length": 100,
+        "Standard Speed": 1,
+        "Fishing Speed": 2,
+        "Patrol Speed": 3,
+        "Quantum RR": 4,
+        "Parameter W": 2,
+        "Sign Duration": 5
+    },
+
+    # ---------------------------------------------
+    # COLAS READY
+    # ---------------------------------------------
+
+    "left_queue": [
+
+        {
+            "id": 1,
+            "type": "STANDARD",
+            "state": "READY"
+        },
+
+        {
+            "id": 2,
+            "type": "FISHING",
+            "state": "READY"
+        }
+    ],
+
+    "right_queue": [
+
+        {
+            "id": 3,
+            "type": "PATROL",
+            "state": "READY"
+        }
+    ],
+
+    # ---------------------------------------------
+    # BARCOS DENTRO DEL CANAL
+    # ---------------------------------------------
+    #
+    # position:
+    # celda discreta del canal
+    #
+    # direction:
+    # LEFT / RIGHT
+    #
+    # state:
+    # RUNNING / BLOCKED / etc
+    #
+    # IMPORTANTE:
+    # NO pueden existir 2 barcos
+    # con la misma position.
+    #
+    # El backend debe garantizar eso.
+    #
+    # ---------------------------------------------
+
+    "channel_ships": [
+
+        {
+            "id": 10,
+            "type": "FISHING",
+            "direction": "RIGHT",
+            "position": 4,
+            "state": "RUNNING"
+        }
+    ]
+}
+
+# =========================================================
+# UTILIDADES
+# =========================================================
+
+def ship_color(ship_type):
+
+    if ship_type == "STANDARD":
+        return "white"
+
+    elif ship_type == "FISHING":
+        return "orange"
+
+    elif ship_type == "PATROL":
+        return "red"
+
+    return "gray"
+
+# =========================================================
+# GUI PRINCIPAL
+# =========================================================
+
+class SchedulingShipsGUI:
+
     def __init__(self, root):
+
         self.root = root
-        self.root.title("Scheduling Ships Controller")
-        self.root.geometry("500x450")
-        self.root.configure(bg="#1e1e2e")  # Dark background
 
-        # Modern Style
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
-        
-        # Configure styles
-        self.style.configure("TFrame", background="#1e1e2e")
-        self.style.configure("TLabel", background="#1e1e2e", foreground="#cdd6f4", font=("Helvetica", 11))
-        self.style.configure("Header.TLabel", font=("Helvetica", 16, "bold"), foreground="#89b4fa")
-        self.style.configure("TRadiobutton", background="#1e1e2e", foreground="#cdd6f4", font=("Helvetica", 10))
-        self.style.configure("Send.TButton", font=("Helvetica", 11, "bold"), background="#a6e3a1", foreground="#1e1e2e")
-        self.style.configure("Clear.TButton", font=("Helvetica", 11, "bold"), background="#f38ba8", foreground="#1e1e2e")
+        self.root.title("Scheduling Ships")
 
-        # Serial Connection
-        self.ser = None
-        self.port = "/dev/ttyUSB0"  # Default port
-        self.baud = 115200
+        self.root.geometry(
+            f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}"
+        )
 
-        self.setup_ui()
-        self.init_serial()
+        self.root.configure(bg="#87CEEB")
 
-    def setup_ui(self):
-        # Main Container
-        main_frame = ttk.Frame(self.root, padding="30")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # =================================================
+        # CANVAS PRINCIPAL
+        # =================================================
 
-        # Header
-        header = ttk.Label(main_frame, text="Ship Scheduler Interface", style="Header.TLabel")
-        header.pack(pady=(0, 20))
+        self.canvas = tk.Canvas(
+            root,
+            width=WINDOW_WIDTH,
+            height=WINDOW_HEIGHT,
+            bg="#87CEEB",
+            highlightthickness=0
+        )
 
-        # Channel Selection
-        channel_frame = ttk.LabelFrame(main_frame, text=" Channel Selection ", padding="15")
-        channel_frame.pack(fill=tk.X, pady=10)
-        
-        self.channel_var = tk.StringVar(value="left")
-        rb_left = ttk.Radiobutton(channel_frame, text="Left Channel", variable=self.channel_var, value="left")
-        rb_right = ttk.Radiobutton(channel_frame, text="Right Channel", variable=self.channel_var, value="right")
-        
-        rb_left.pack(side=tk.LEFT, padx=20)
-        rb_right.pack(side=tk.LEFT, padx=20)
+        self.canvas.pack(fill="both", expand=True)
 
-        # Boat List Input
-        input_frame = ttk.Frame(main_frame)
-        input_frame.pack(fill=tk.X, pady=20)
+        # =================================================
+        # TECLA SALIDA
+        # =================================================
 
-        lbl_boats = ttk.Label(input_frame, text="Boats List (S: Standard, F: Fishing, P: Patrol)")
-        lbl_boats.pack(anchor=tk.W)
+        self.root.bind("w", self.close_program)
 
-        self.boat_entry = tk.Entry(input_frame, bg="#313244", fg="#cdd6f4", 
-                                  insertbackground="white", font=("Courier", 12),
-                                  relief=tk.FLAT, borderwidth=10)
-        self.boat_entry.pack(fill=tk.X, pady=5)
-        self.boat_entry.insert(0, "F,S,P,P,F,S")
+        # =================================================
+        # RENDER INICIAL
+        # =================================================
 
-        # Buttons
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X, pady=20)
+        self.render()
 
-        self.btn_send = ttk.Button(btn_frame, text="SEND ARRAY", command=self.send_data, style="Send.TButton")
-        self.btn_send.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
+        # =================================================
+        # LOOP GUI
+        # =================================================
 
-        self.btn_clear = ttk.Button(btn_frame, text="CLEAR (C)", command=self.send_clear, style="Clear.TButton")
-        self.btn_clear.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(10, 0))
+        self.update_loop()
 
-        # Status Bar
-        self.status_var = tk.StringVar(value="Disconnected")
-        self.status_lbl = tk.Label(self.root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, 
-                                  anchor=tk.W, bg="#11111b", fg="#fab387", font=("Helvetica", 9))
-        self.status_lbl.pack(side=tk.BOTTOM, fill=tk.X)
+    # =====================================================
+    # RENDER GENERAL
+    # =====================================================
+    #
+    # IMPORTANTE:
+    # -----------------------------------------------------
+    # Toda la GUI se reconstruye desde system_state.
+    #
+    # El backend solo debe modificar system_state.
+    #
+    # =====================================================
 
-    def init_serial(self):
-        try:
-            self.ser = serial.Serial(self.port, self.baud, timeout=1)
-            self.status_var.set(f"Connected to {self.port} at {self.baud} baud")
-        except Exception as e:
-            self.status_var.set(f"Error: Could not open {self.port}")
-            print(f"Serial Error: {e}")
+    def render(self):
 
-    def send_data(self):
-        if not self.ser or not self.ser.is_open:
-            messagebox.showerror("Serial Error", "Serial port is not open.")
-            return
+        self.canvas.delete("all")
 
-        raw_input = self.boat_entry.get().upper()
-        # Clean input: keep only S, F, P and commas
-        cleaned = "".join([c for c in raw_input if c in "SFP,"])
-        
-        # Format as [F,S,P]
-        # First, split by comma and remove empty strings
-        parts = [p.strip() for p in cleaned.split(",") if p.strip()]
-        formatted_array = "[" + ",".join(parts) + "]"
-        
-        # Prepend channel info if needed, but the prompt says "send the previous array"
-        # I'll send it as: CHANNEL:[F,S,P]
-        message = f"{self.channel_var.get().upper()}:{formatted_array}\n"
-        
-        try:
-            self.ser.write(message.encode('utf-8'))
-            print(f"Sent: {message.strip()}")
-            self.status_var.set(f"Last Sent: {message.strip()}")
-        except Exception as e:
-            messagebox.showerror("Send Error", f"Failed to send data: {e}")
+        self.draw_title()
 
-    def send_clear(self):
-        if not self.ser or not self.ser.is_open:
-            messagebox.showerror("Serial Error", "Serial port is not open.")
-            return
+        self.draw_info_panel()
 
-        try:
-            message = "C\n"
-            self.ser.write(message.encode('utf-8'))
-            print("Sent: C")
-            self.status_var.set("Last Sent: C")
-        except Exception as e:
-            messagebox.showerror("Send Error", f"Failed to send clear command: {e}")
+        self.draw_channel()
+
+        self.draw_queues()
+
+        self.draw_channel_ships()
+
+    # =====================================================
+    # TITULO
+    # =====================================================
+
+    def draw_title(self):
+
+        self.canvas.create_text(
+            WINDOW_WIDTH // 2,
+            30,
+            text="SCHEDULING SHIPS",
+            font=("Arial", 24, "bold")
+        )
+
+    # =====================================================
+    # PANEL INFORMACION
+    # =====================================================
+
+    def draw_info_panel(self):
+
+        x = 20
+        y = 20
+
+        self.canvas.create_rectangle(
+            x,
+            y,
+            x + 280,
+            y + 300,
+            fill="white"
+        )
+
+        self.canvas.create_text(
+            x + 140,
+            y + 20,
+            text="SYSTEM INFO",
+            font=("Arial", 14, "bold")
+        )
+
+        info_y = y + 60
+
+        self.canvas.create_text(
+            x + 10,
+            info_y,
+            anchor="w",
+            text=f"Scheduler: {system_state['scheduler']}"
+        )
+
+        info_y += 25
+
+        self.canvas.create_text(
+            x + 10,
+            info_y,
+            anchor="w",
+            text=f"Flow: {system_state['flow_control']}"
+        )
+
+        info_y += 40
+
+        for key, value in system_state["config"].items():
+
+            self.canvas.create_text(
+                x + 10,
+                info_y,
+                anchor="w",
+                text=f"{key}: {value}"
+            )
+
+            info_y += 20
+
+    # =====================================================
+    # CANAL
+    # =====================================================
+
+    def draw_channel(self):
+
+        self.canvas.create_rectangle(
+            CHANNEL_X1,
+            CHANNEL_Y - 50,
+            CHANNEL_X2,
+            CHANNEL_Y + 50,
+            fill="#666666"
+        )
+
+        # Dibujar celdas discretas
+
+        for i in range(CHANNEL_CELLS):
+
+            x = CHANNEL_X1 + i * CELL_SIZE
+
+            self.canvas.create_line(
+                x,
+                CHANNEL_Y - 50,
+                x,
+                CHANNEL_Y + 50
+            )
+
+    # =====================================================
+    # COLAS
+    # =====================================================
+
+    def draw_queues(self):
+
+        # LEFT QUEUE
+
+        x = 40
+
+        for ship in system_state["left_queue"]:
+
+            self.draw_ship(
+                x,
+                CHANNEL_Y,
+                ship
+            )
+
+            x += 60
+
+        # RIGHT QUEUE
+
+        x = 1300
+
+        for ship in system_state["right_queue"]:
+
+            self.draw_ship(
+                x,
+                CHANNEL_Y,
+                ship
+            )
+
+            x -= 60
+
+    # =====================================================
+    # BARCOS EN CANAL
+    # =====================================================
+
+    def draw_channel_ships(self):
+
+        occupied_positions = set()
+
+        for ship in system_state["channel_ships"]:
+
+            position = ship["position"]
+
+            # -----------------------------------------
+            # PROTECCION ANTI COLISIONES
+            # -----------------------------------------
+
+            if position in occupied_positions:
+
+                print(
+                    f"ERROR: collision detected at "
+                    f"position {position}"
+                )
+
+                continue
+
+            occupied_positions.add(position)
+
+            # -----------------------------------------
+            # CONVERSION LOGICA -> VISUAL
+            # -----------------------------------------
+
+            x = CHANNEL_X1 + position * CELL_SIZE
+
+            self.draw_ship(
+                x,
+                CHANNEL_Y,
+                ship
+            )
+
+    # =====================================================
+    # DIBUJAR BARCO
+    # =====================================================
+
+    def draw_ship(self, x, y, ship):
+
+        color = ship_color(ship["type"])
+
+        self.canvas.create_rectangle(
+            x,
+            y,
+            x + SHIP_WIDTH,
+            y + SHIP_HEIGHT,
+            fill=color,
+            outline="black"
+        )
+
+        self.canvas.create_text(
+            x + 20,
+            y + 10,
+            text=str(ship["id"]),
+            font=("Arial", 8, "bold")
+        )
+
+    # =====================================================
+    # LOOP PRINCIPAL GUI
+    # =====================================================
+    #
+    # IMPORTANTE:
+    # -----------------------------------------------------
+    # Aqui eventualmente se llamara:
+    #
+    # - read_serial()
+    # - receive_socket()
+    # - parse_json()
+    #
+    # para actualizar system_state.
+    #
+    # =====================================================
+
+    def update_loop(self):
+
+        # FUTURO:
+        # actualizar system_state desde ESP32
+
+        self.render()
+
+        self.root.after(50, self.update_loop)
+
+    # =====================================================
+    # SALIDA LIMPIA
+    # =====================================================
+
+    def close_program(self, event=None):
+
+        print("Closing GUI...")
+
+        self.root.destroy()
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    root = tk.Tk()
+
+    app = SchedulingShipsGUI(root)
+
+    root.mainloop()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = BoatControllerGUI(root)
-    root.mainloop()
+    main()
