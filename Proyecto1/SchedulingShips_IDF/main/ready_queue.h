@@ -45,6 +45,10 @@ void initQueue(QueueShip* q, const char* name);
  */
 int enqueue(QueueShip* q, Ship* s);
 /*
+ * Agrega un barco al INICIO de la cola (para reinserción de emergencia).
+ */
+int enqueue_front(QueueShip* q, Ship* s);
+/*
  * Extrae el primer barco de la cola.
  *
  * Retorna:

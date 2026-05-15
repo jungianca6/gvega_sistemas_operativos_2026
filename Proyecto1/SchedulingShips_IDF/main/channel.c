@@ -1,6 +1,7 @@
 #include "channel.h"
 
 Channel* g_channel = NULL;
+volatile bool emergency_stop = false;
 
 /*
  * Inicializa una estructura Channel con los datos recibidos.

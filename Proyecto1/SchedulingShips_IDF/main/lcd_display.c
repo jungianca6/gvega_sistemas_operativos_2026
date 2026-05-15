@@ -35,6 +35,7 @@ static LCD_t lcd_channel;
 uint8_t Patrol[]   = { 0x04, 0x0E, 0x1F, 0x0E, 0x04, 0x11, 0x1F, 0x0E };
 uint8_t Fishing[]  = { 0x04, 0x0A, 0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11 };
 uint8_t Standard[] = { 0x04, 0x06, 0x07, 0x07, 0x04, 0x15, 0x1F, 0x0E };
+uint8_t Lock[]     = { 0x0E, 0x11, 0x11, 0x1F, 0x1B, 0x1B, 0x1F, 0x00 };
 
 /* ---------- CANAL: ESTADO COMPARTIDO ---------- */
 
@@ -140,6 +141,7 @@ void lcd_channel_init(void) {
     LCD_createChar(&lcd_channel, 1, Patrol);
     LCD_createChar(&lcd_channel, 2, Fishing);
     LCD_createChar(&lcd_channel, 3, Standard);
+    LCD_createChar(&lcd_channel, 4, Lock);
 
     LCD_clearScreen(&lcd_channel);
 
@@ -377,4 +379,38 @@ bool lcd_channel_is_empty(void) {
 
     xSemaphoreGive(channel_mutex);
     return empty;
+}
+
+int lcd_channel_evacuate_all(Ship** out_ships, int max_ships) {
+    int count = 0;
+
+    xSemaphoreTake(channel_mutex, portMAX_DELAY);
+
+    for (int i = 0; i < MAX_SHIPS_IN_CHANNEL && count < max_ships; i++) {
+        if (channel_slots[i].active) {
+            out_ships[count++] = channel_slots[i].ship;
+            ESP_LOGI(TAG, "Evacuando barco %d de row=%d, col=%d",
+                     channel_slots[i].ship->id, channel_slots[i].row, channel_slots[i].col);
+            channel_slots[i].ship = NULL;
+            channel_slots[i].col = -1;
+            channel_slots[i].row = -1;
+            channel_slots[i].active = false;
+        }
+    }
+
+    lcd_channel_refresh();
+    xSemaphoreGive(channel_mutex);
+    return count;
+}
+
+void lcd_channel_show_lock(void) {
+    LCD_setCursor(&lcd_channel, 8, 1);
+    LCD_writeChar(&lcd_channel, (unsigned char)4);
+    ESP_LOGI(TAG, "Canal BLOQUEADO - candado mostrado");
+}
+
+void lcd_channel_clear_lock(void) {
+    LCD_setCursor(&lcd_channel, 8, 1);
+    LCD_writeChar(&lcd_channel, ' ');
+    ESP_LOGI(TAG, "Canal DESBLOQUEADO - candado removido");
 }

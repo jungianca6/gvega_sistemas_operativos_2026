@@ -42,6 +42,21 @@ int enqueue(QueueShip* q, Ship* s) {
     return 1;
 }
 
+int enqueue_front(QueueShip* q, Ship* s) {
+    if (q->size >= MAX_QUEUE) return 0;
+
+    Node* n = malloc(sizeof(Node));
+    if (!n) return 0;
+    n->ship = s;
+    n->next = q->front;
+
+    q->front = n;
+    if (!q->rear) q->rear = n;
+
+    q->size++;
+    return 1;
+}
+
 /*
  * Extrae el primer barco de la cola.
  *

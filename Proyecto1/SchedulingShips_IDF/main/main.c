@@ -213,128 +213,248 @@ void ShipTask(void *parameter) {
     if (g_channel) {
         tick_ms = BASE_TICK_MS * g_channel->length / 100;
     }
-    if (tick_ms < 50) tick_ms = 50;  // mínimo 50ms
+    if (tick_ms < 50) tick_ms = 50;
 
-    // Determinar columna de salida
     int exit_col = (barco->direction == LEFT) ? 15 : 0;
 
     ESP_LOGI(TAG, "ShipTask: barco %d iniciando cruce (speed=%d, tick=%dms, exit_col=%d)",
              barco->id, barco->speed, tick_ms, exit_col);
 
-    // Loop de animación: mover por el canal LCD
+    // Loop de animación
     while (1) {
+        // === EMERGENCY STOP CHECK ===
+        if (emergency_stop) {
+            ESP_LOGI(TAG, "ShipTask: barco %d — PARADA DE EMERGENCIA", barco->id);
+            if (canal_task_handle) xTaskNotifyGive(canal_task_handle);
+            vTaskDelete(NULL);
+            return;
+        }
+
         // ¿Llegamos al final?
         if ((barco->direction == LEFT  && barco->channel_col >= exit_col) ||
             (barco->direction == RIGHT && barco->channel_col <= exit_col)) {
             break;
         }
 
-        // Verificar colisión antes de moverse — SIN busy waiting
+        // Verificar colisión — SIN busy waiting
         while (!lcd_check_pos(barco)) {
+            if (emergency_stop) {
+                if (canal_task_handle) xTaskNotifyGive(canal_task_handle);
+                vTaskDelete(NULL);
+                return;
+            }
             xEventGroupWaitBits(channel_event_group,
                                 BIT_SHIP_MOVED,
-                                pdTRUE,     // limpiar bits al salir
-                                pdFALSE,    // cualquier bit
-                                portMAX_DELAY);
+                                pdTRUE, pdFALSE,
+                                pdMS_TO_TICKS(500)); // timeout para re-check emergency
         }
 
-        // Avanzar el barco en el LCD del canal
+        // Avanzar el barco
         lcd_channel_advance_ship(barco);
 
-        // Esperar el tick de animación
+        // Esperar tick
         vTaskDelay(pdMS_TO_TICKS(tick_ms));
     }
 
     ESP_LOGI(TAG, "ShipTask: barco %d completó el cruce", barco->id);
 
-    // Remover del canal LCD y liberar recursos
+    // Cruce normal: limpiar y liberar
     lcd_channel_remove_ship(barco);
 
-    // Notificar a CanalTask que este barco terminó
     if (canal_task_handle) {
         xTaskNotifyGive(canal_task_handle);
     }
 
-    // Liberar recursos del barco
     vSemaphoreDelete(barco->sem);
     free(barco);
-
     vTaskDelete(NULL);
 }
 
 /*
+ * Manejo de parada de emergencia.
+ * Espera que todas las ShipTasks activas notifiquen su salida,
+ * evacúa barcos del canal, los re-encola, muestra candado,
+ * y espera hasta que emergency_stop se desactive.
+ */
+static void handle_emergency_stop(int sent) {
+    ESP_LOGW(TAG, "=== PARADA DE EMERGENCIA ACTIVADA ===");
+
+    // Esperar que todos los ShipTasks activos notifiquen su salida
+    for (int i = 0; i < sent; i++) {
+        ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(2000));
+    }
+
+    // Evacuar barcos del canal LCD
+    Ship* evac_ships[16];
+    int evac_count = lcd_channel_evacuate_all(evac_ships, 16);
+
+    // Re-encolar barcos al frente de sus colas con nuevos semáforos y tareas
+    for (int i = 0; i < evac_count; i++) {
+        Ship* s = evac_ships[i];
+        s->channel_col = -1;
+        vSemaphoreDelete(s->sem);
+        s->sem = xSemaphoreCreateBinary();
+
+        QueueShip* q = (s->direction == LEFT) ? &colaIzq : &colaDer;
+        enqueue_front(q, s);
+        spawn_ship_thread(s);
+
+        ESP_LOGI(TAG, "Barco %d (%s) re-encolado en dirección %s",
+                 s->id, shipTypeToString(s->type), dirToString(s->direction));
+    }
+
+    // Mostrar candado y actualizar colas
+    lcd_channel_show_lock();
+    lcd_mostrar_colas(&colaIzq, &colaDer);
+
+    // Esperar a que se desactive emergency_stop
+    while (emergency_stop) {
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
+    lcd_channel_clear_lock();
+    ESP_LOGW(TAG, "=== PARADA DE EMERGENCIA FINALIZADA ===");
+}
+
+/*
+ * Algoritmo Fairness: alterna W barcos de cada dirección.
+ * Retorna true si fue interrumpido por emergency_stop.
+ */
+static bool fairness_dispatch(Direction current_dir) {
+    int w = g_channel->w_parameter;
+    QueueShip* source = (current_dir == LEFT) ? &colaIzq : &colaDer;
+    int row = (current_dir == LEFT) ? 0 : 1;
+    int sent = 0;
+
+    ESP_LOGI(TAG, "CanalTask [Fairness]: turno para dirección %s (W=%d)",
+             dirToString(current_dir), w);
+
+    // Despachar hasta W barcos
+    while (sent < w) {
+        if (emergency_stop) {
+            handle_emergency_stop(sent);
+            return true;
+        }
+
+        Ship* barco;
+        if (!dequeue(source, &barco)) {
+            ESP_LOGI(TAG, "CanalTask: cola %s vacía después de %d barcos",
+                     dirToString(current_dir), sent);
+            break;
+        }
+
+        // Esperar entrada libre — con chequeo de emergencia
+        while (!lcd_channel_entry_free(row)) {
+            if (emergency_stop) {
+                enqueue_front(source, barco);
+                handle_emergency_stop(sent);
+                return true;
+            }
+            xEventGroupWaitBits(channel_event_group,
+                                BIT_SHIP_MOVED,
+                                pdTRUE, pdFALSE,
+                                pdMS_TO_TICKS(500));
+        }
+
+        if (emergency_stop) {
+            enqueue_front(source, barco);
+            handle_emergency_stop(sent);
+            return true;
+        }
+
+        lcd_channel_place_ship(barco, row);
+        xSemaphoreGive(barco->sem);
+        lcd_mostrar_colas(&colaIzq, &colaDer);
+
+        sent++;
+        ESP_LOGI(TAG, "CanalTask: barco %d (%s) despachado (%d/%d)",
+                 barco->id, shipTypeToString(barco->type), sent, w);
+    }
+
+    // Esperar que todos los barcos crucen
+    for (int i = 0; i < sent; i++) {
+        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
+        if (emergency_stop) {
+            handle_emergency_stop(sent - (i + 1));
+            return true;
+        }
+    }
+
+    if (sent > 0) {
+        ESP_LOGI(TAG, "CanalTask: %d barcos de dirección %s completaron el cruce",
+                 sent, dirToString(current_dir));
+    }
+    return false;
+}
+
+/*
  * Tarea planificadora del canal.
- *
- * Implementa el algoritmo de Fairness:
- * - Alterna W barcos de cada dirección.
- * - Cada barco entra al canal cuando la posición de entrada está libre.
- * - Espera a que todos los W barcos crucen antes de cambiar dirección.
+ * Selecciona algoritmo según FlowControl de config.txt.
  */
 void CanalTask(void *param) {
-    // Esperar a que CreadorTask termine de inicializar las colas y LCDs
     xSemaphoreTake(canal_start_sem, portMAX_DELAY);
 
-    int w = g_channel->w_parameter;
-    ESP_LOGI(TAG, "CanalTask: Fairness con W=%d, ChannelLength=%d",
-             w, g_channel->length);
+    FlowControl mode = (FlowControl)g_channel->flow_control;
+    ESP_LOGI(TAG, "CanalTask: modo=%d, W=%d, ChannelLength=%d",
+             mode, g_channel->w_parameter, g_channel->length);
 
     Direction current_dir = LEFT;
 
     for (;;) {
-        QueueShip* source = (current_dir == LEFT) ? &colaIzq : &colaDer;
-        int row = (current_dir == LEFT) ? 0 : 1;
-        int sent = 0;
+        // Chequear emergencia antes de cada ciclo
+        if (emergency_stop) {
+            handle_emergency_stop(0);
+            continue;
+        }
 
-        ESP_LOGI(TAG, "CanalTask: turno para dirección %s (W=%d)",
-                 dirToString(current_dir), w);
-
-        // Despachar hasta W barcos de la dirección actual
-        while (sent < w) {
-            Ship* barco;
-            if (!dequeue(source, &barco)) {
-                ESP_LOGI(TAG, "CanalTask: cola %s vacía después de %d barcos",
-                         dirToString(current_dir), sent);
+        switch (mode) {
+            case FAIRNESS: {
+                bool interrupted = fairness_dispatch(current_dir);
+                if (!interrupted) {
+                    current_dir = (current_dir == LEFT) ? RIGHT : LEFT;
+                }
                 break;
             }
-
-            // Esperar a que la posición de entrada esté libre — sin busy waiting
-            while (!lcd_channel_entry_free(row)) {
-                xEventGroupWaitBits(channel_event_group,
-                                    BIT_SHIP_MOVED,
-                                    pdTRUE,
-                                    pdFALSE,
-                                    portMAX_DELAY);
-            }
-
-            // Colocar barco en el LCD del canal
-            lcd_channel_place_ship(barco, row);
-
-            // Despertar la tarea del barco
-            xSemaphoreGive(barco->sem);
-
-            // Actualizar LCDs de colas
-            lcd_mostrar_colas(&colaIzq, &colaDer);
-
-            sent++;
-            ESP_LOGI(TAG, "CanalTask: barco %d (%s) despachado (%d/%d)",
-                     barco->id, shipTypeToString(barco->type), sent, w);
+            case SIGN:
+                // TODO: implementar algoritmo Sign
+                ESP_LOGW(TAG, "Algoritmo SIGN no implementado aún");
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                break;
+            case TICO:
+                // TODO: implementar algoritmo Tico
+                ESP_LOGW(TAG, "Algoritmo TICO no implementado aún");
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                break;
         }
 
-        // Esperar a que TODOS los barcos despachados terminen de cruzar
-        for (int i = 0; i < sent; i++) {
-            ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
-        }
-
-        if (sent > 0) {
-            ESP_LOGI(TAG, "CanalTask: %d barcos de dirección %s completaron el cruce",
-                     sent, dirToString(current_dir));
-        }
-
-        // Cambiar dirección
-        current_dir = (current_dir == LEFT) ? RIGHT : LEFT;
-
-        // Pequeña pausa antes de procesar la otra dirección
         vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
+/*
+ * Tarea de prueba para parada de emergencia.
+ * Cada 5 ticks alterna emergency_stop para simular sensor ultrasónico.
+ */
+void EmergencyTestTask(void *param) {
+    int tick_ms = BASE_TICK_MS;
+    if (g_channel) {
+        tick_ms = BASE_TICK_MS * g_channel->length / 100;
+    }
+    if (tick_ms < 50) tick_ms = 50;
+
+    for (;;) {
+        // Esperar 5 ticks
+        vTaskDelay(pdMS_TO_TICKS(tick_ms * 5));
+
+        if (!emergency_stop) {
+            ESP_LOGW(TAG, ">>> EMERGENCIA: Objeto detectado — ACTIVANDO parada <<<");
+            emergency_stop = true;
+            // Despertar cualquier ShipTask bloqueada
+            xEventGroupSetBits(channel_event_group, BIT_SHIP_MOVED);
+        } else {
+            ESP_LOGW(TAG, ">>> EMERGENCIA: Despejado — DESACTIVANDO parada <<<");
+            emergency_stop = false;
+        }
     }
 }
 
@@ -496,6 +616,9 @@ void app_main(void) {
  
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
     xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, &canal_task_handle);
+
+    // Tarea de prueba: alterna emergency_stop cada 5 ticks
+    xTaskCreate(EmergencyTestTask, "EmergTest", 2048, NULL, 1, NULL);
 
     init_uart();
     xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);

@@ -2,6 +2,7 @@
 #define CHANNEL_H
 
 #include "ready_queue.h"
+#include <stdbool.h>
 
 /*
  * Enumeración que representa los métodos de control de flujo.
@@ -39,6 +40,9 @@ typedef struct Channel {
  * Se establece con channel_set_global() después de init_channel().
  */
 extern Channel* g_channel;
+
+/** Variable global de parada de emergencia. Modificada por sensor ultrasónico. */
+extern volatile bool emergency_stop;
 
 void init_channel(Channel* channel, int length, int speed, int flow_control, int sign_interval, int w_parameter);
 void channel_set_global(Channel* ch);

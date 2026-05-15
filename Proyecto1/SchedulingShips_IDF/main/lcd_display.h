@@ -70,6 +70,21 @@ bool lcd_channel_entry_free(int row);
  */
 bool lcd_channel_is_empty(void);
 
+/**
+ * Evacúa TODOS los barcos del canal LCD.
+ * Limpia los slots y retorna los punteros a los barcos evacuados.
+ * @param out_ships  Array donde se guardarán los punteros a los barcos.
+ * @param max_ships  Tamaño máximo del array.
+ * @return Cantidad de barcos evacuados.
+ */
+int lcd_channel_evacuate_all(Ship** out_ships, int max_ships);
+
+/** Muestra el ícono de candado en el centro del LCD del canal (col 8, row 1). */
+void lcd_channel_show_lock(void);
+
+/** Limpia el ícono de candado del LCD del canal. */
+void lcd_channel_clear_lock(void);
+
 /* Event group global para sincronización del canal */
 extern EventGroupHandle_t channel_event_group;
 
