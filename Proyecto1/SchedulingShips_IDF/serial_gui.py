@@ -1,5 +1,6 @@
 import tkinter as tk
-
+import json
+import serial
 # =========================================================
 # CONFIGURACION GENERAL GUI
 # =========================================================
@@ -19,6 +20,18 @@ CELL_SIZE = 55
 # Tamaño visual barcos
 SHIP_WIDTH = 40
 SHIP_HEIGHT = 20
+
+# =========================================================
+# CONFIG SERIAL UART
+# =========================================================
+
+SERIAL_PORT = "/dev/ttyUSB0"
+
+BAUD_RATE = 115200  #configurar segun dispositivo
+
+SERIAL_TIMEOUT = 0.01
+
+serial_connection = None
 
 # =========================================================
 # ESTADO GLOBAL DEL SISTEMA
@@ -139,6 +152,103 @@ def ship_color(ship_type):
         return "red"
 
     return "gray"
+
+# =========================================================
+# CONECTAR UART
+# =========================================================
+#
+# IMPORTANTE:
+# ---------------------------------------------------------
+# Esta funcion abre el puerto serial conectado
+# al ESP32.
+#
+# El ESP32 enviara snapshots JSON del sistema.
+#
+# =========================================================
+
+def connect_serial():
+
+    global serial_connection
+
+    try:
+
+        serial_connection = serial.Serial(
+            port=SERIAL_PORT,
+            baudrate=BAUD_RATE,
+            timeout=SERIAL_TIMEOUT
+        )
+
+        print(f"Connected to {SERIAL_PORT}")
+
+    except Exception as e:
+
+        print(f"Serial connection error: {e}")
+
+        serial_connection = None
+
+# =========================================================
+# LEER DATOS SERIAL
+# =========================================================
+#
+# IMPORTANTE:
+# ---------------------------------------------------------
+# El ESP32 enviara:
+#
+# JSON + '\n'
+#
+# Ejemplo:
+#
+# {
+#   "channel_ships":[...]
+# }
+#
+# Cada linea serial representa
+# un snapshot completo del sistema.
+#
+# =========================================================
+
+def receive_serial_data():
+
+    global serial_connection
+    global system_state
+
+    if serial_connection is None:
+
+        return
+
+    try:
+
+        # ---------------------------------------------
+        # Leer linea completa
+        # ---------------------------------------------
+
+        if serial_connection.in_waiting > 0:
+
+            line = serial_connection.readline()
+
+            json_string = line.decode("utf-8").strip()
+
+            # Evitar lineas vacias
+
+            if json_string == "":
+
+                return
+
+            # -----------------------------------------
+            # Parse JSON
+            # -----------------------------------------
+
+            new_state = json.loads(json_string)
+
+            # -----------------------------------------
+            # Actualizar estado global
+            # -----------------------------------------
+
+            system_state.update(new_state)
+
+    except Exception as e:
+
+        print(f"Serial read error: {e}")
 
 # =========================================================
 # GUI PRINCIPAL
@@ -426,9 +536,10 @@ class SchedulingShipsGUI:
 
     def update_loop(self):
 
-        # FUTURO:
-        # actualizar system_state desde ESP32
+        #Leer estado desde ESP32
+        receive_serial_data()
 
+        #Redibujar
         self.render()
 
         self.root.after(50, self.update_loop)
@@ -438,9 +549,12 @@ class SchedulingShipsGUI:
     # =====================================================
 
     def close_program(self, event=None):
-
+        global serial_connection
         print("Closing GUI...")
 
+        self.root.destroy()
+        if serial_connection is not None:
+            serial_connection.close()
         self.root.destroy()
 
 # =========================================================
@@ -448,6 +562,8 @@ class SchedulingShipsGUI:
 # =========================================================
 
 def main():
+
+    connect_serial()
 
     root = tk.Tk()
 
