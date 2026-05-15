@@ -1,5 +1,7 @@
 #include "channel.h"
 
+Channel* g_channel = NULL;
+
 /*
  * Inicializa una estructura Channel con los datos recibidos.
  *
@@ -18,5 +20,9 @@ void init_channel(Channel* channel, int length, int speed, int flow_control, int
     channel->flow_control = flow_control;
     channel->sign_interval = sign_interval;
     channel->w_parameter = w_parameter;
+}
+
+void channel_set_global(Channel* ch) {
+    g_channel = ch;
 }
 

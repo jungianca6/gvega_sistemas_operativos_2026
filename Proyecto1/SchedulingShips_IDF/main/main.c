@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
+#include "freertos/event_groups.h"
 
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -39,6 +40,9 @@
 #define UART_PORT_NUM UART_NUM_0
 #define BUF_SIZE 1024
 
+/* Intervalo base de animación en ms. Se escala con ChannelLength. */
+#define BASE_TICK_MS 1000
+
 static const char *TAG = "MAIN";
 
 /*
@@ -63,6 +67,12 @@ static int barcoID = 0;
 static AppConfig appConfig;
 static Channel mainChannel;
 static int shipSpeeds[3]; // STANDARD, FISHING, PATROL
+
+/* Handle de CanalTask para que ShipTask pueda notificar cuando termina */
+static TaskHandle_t canal_task_handle = NULL;
+
+/* Semáforo para sincronizar: CanalTask espera hasta que CreadorTask termine el setup inicial */
+static SemaphoreHandle_t canal_start_sem;
 
 // ---------------- ISR ----------------
 /*
@@ -119,8 +129,8 @@ esp_err_t init_spiffs(void);
 void spawn_ship_thread(void *arg) {
     Ship* barco = (Ship*)arg;
     char name[16];
-    snprintf(name, sizeof(name), "ShipTask_%d", barco->id);
-    xTaskCreate(ShipTask, name, 2048, barco, 1, NULL);
+    snprintf(name, sizeof(name), "Ship_%d", barco->id);
+    xTaskCreate(ShipTask, name, 2048, barco, 1, &barco->task_handle);
 }
 // ---------------- TASK CREADOR ----------------
 void CreadorTask(void *parameter) {
@@ -137,6 +147,7 @@ void CreadorTask(void *parameter) {
                          appConfig.flow_control, 
                          appConfig.sign_duration, 
                          appConfig.parameter_w);
+            channel_set_global(&mainChannel);
         }
     }
 
@@ -149,7 +160,12 @@ void CreadorTask(void *parameter) {
     populate_queue_from_config(&colaDer, appConfig.queue_right, appConfig.queue_right_count, RIGHT, shipSpeeds, &barcoID, spawn_ship_thread);
 
     ESP_LOGI(TAG, "Colas iniciales pobladas. Actualizando LCDs...");
+
+    
     lcd_mostrar_colas(&colaIzq, &colaDer);
+
+    // Señalar a CanalTask que las colas están listas
+    xSemaphoreGive(canal_start_sem);
 
     int pin;
     for (;;) {
@@ -189,51 +205,136 @@ void CreadorTask(void *parameter) {
 void ShipTask(void *parameter) {
     Ship* barco = (Ship*)parameter;
 
-    // El barco espera en su semáforo privado hasta que el planificador le dé paso
-    if (xSemaphoreTake(barco->sem, portMAX_DELAY)) {
-        // Simulación de cruce (el tiempo real se implementará luego)
-        vTaskDelay(pdMS_TO_TICKS(3000));
+    // Bloquear hasta que CanalTask dé permiso de cruzar
+    xSemaphoreTake(barco->sem, portMAX_DELAY);
+
+    // Calcular el tick de animación escalado por ChannelLength
+    int tick_ms = BASE_TICK_MS;
+    if (g_channel) {
+        tick_ms = BASE_TICK_MS * g_channel->length / 100;
+    }
+    if (tick_ms < 50) tick_ms = 50;  // mínimo 50ms
+
+    // Determinar columna de salida
+    int exit_col = (barco->direction == LEFT) ? 15 : 0;
+
+    ESP_LOGI(TAG, "ShipTask: barco %d iniciando cruce (speed=%d, tick=%dms, exit_col=%d)",
+             barco->id, barco->speed, tick_ms, exit_col);
+
+    // Loop de animación: mover por el canal LCD
+    while (1) {
+        // ¿Llegamos al final?
+        if ((barco->direction == LEFT  && barco->channel_col >= exit_col) ||
+            (barco->direction == RIGHT && barco->channel_col <= exit_col)) {
+            break;
+        }
+
+        // Verificar colisión antes de moverse — SIN busy waiting
+        while (!lcd_check_pos(barco)) {
+            xEventGroupWaitBits(channel_event_group,
+                                BIT_SHIP_MOVED,
+                                pdTRUE,     // limpiar bits al salir
+                                pdFALSE,    // cualquier bit
+                                portMAX_DELAY);
+        }
+
+        // Avanzar el barco en el LCD del canal
+        lcd_channel_advance_ship(barco);
+
+        // Esperar el tick de animación
+        vTaskDelay(pdMS_TO_TICKS(tick_ms));
     }
 
-    // El CanalTask (planificador) se encargará de hacer el dequeue y liberar la memoria.
-    // Esta tarea simplemente termina.
+    ESP_LOGI(TAG, "ShipTask: barco %d completó el cruce", barco->id);
+
+    // Remover del canal LCD y liberar recursos
+    lcd_channel_remove_ship(barco);
+
+    // Notificar a CanalTask que este barco terminó
+    if (canal_task_handle) {
+        xTaskNotifyGive(canal_task_handle);
+    }
+
+    // Liberar recursos del barco
+    vSemaphoreDelete(barco->sem);
+    free(barco);
+
     vTaskDelete(NULL);
 }
 
 /*
- * Tarea encargada de simular el paso de barcos por el canal.
+ * Tarea planificadora del canal.
  *
- * La tarea intenta sacar un barco primero de la cola izquierda.
- * Si no hay barcos en esa cola, intenta sacar uno de la cola derecha.
- *
- * Cuando encuentra un barco:
- * - Muestra un mensaje en el log.
- * - Espera 3 segundos simulando el cruce.
- * - Libera la memoria del barco.
+ * Implementa el algoritmo de Fairness:
+ * - Alterna W barcos de cada dirección.
+ * - Cada barco entra al canal cuando la posición de entrada está libre.
+ * - Espera a que todos los W barcos crucen antes de cambiar dirección.
  */
-
 void CanalTask(void *param) {
-    Ship* barco;
+    // Esperar a que CreadorTask termine de inicializar las colas y LCDs
+    xSemaphoreTake(canal_start_sem, portMAX_DELAY);
+
+    int w = g_channel->w_parameter;
+    ESP_LOGI(TAG, "CanalTask: Fairness con W=%d, ChannelLength=%d",
+             w, g_channel->length);
+
+    Direction current_dir = LEFT;
 
     for (;;) {
-        // Por ahora, un planificador simple que da paso al primero que encuentre
-        if (dequeue(&colaIzq, &barco) || dequeue(&colaDer, &barco)) {
+        QueueShip* source = (current_dir == LEFT) ? &colaIzq : &colaDer;
+        int row = (current_dir == LEFT) ? 0 : 1;
+        int sent = 0;
 
-            ESP_LOGI(TAG, "Planificador: dando paso a barco %d (%s)",
-                barco->id, shipTypeToString(barco->type));
+        ESP_LOGI(TAG, "CanalTask: turno para dirección %s (W=%d)",
+                 dirToString(current_dir), w);
 
-            // Despertar el hilo del barco
+        // Despachar hasta W barcos de la dirección actual
+        while (sent < w) {
+            Ship* barco;
+            if (!dequeue(source, &barco)) {
+                ESP_LOGI(TAG, "CanalTask: cola %s vacía después de %d barcos",
+                         dirToString(current_dir), sent);
+                break;
+            }
+
+            // Esperar a que la posición de entrada esté libre — sin busy waiting
+            while (!lcd_channel_entry_free(row)) {
+                xEventGroupWaitBits(channel_event_group,
+                                    BIT_SHIP_MOVED,
+                                    pdTRUE,
+                                    pdFALSE,
+                                    portMAX_DELAY);
+            }
+
+            // Colocar barco en el LCD del canal
+            lcd_channel_place_ship(barco, row);
+
+            // Despertar la tarea del barco
             xSemaphoreGive(barco->sem);
 
-            // Esperar a que el barco cruce (simulado igual que el ShipTask por ahora)
-            vTaskDelay(pdMS_TO_TICKS(3500)); 
-
-            vSemaphoreDelete(barco->sem);
-            free(barco);
+            // Actualizar LCDs de colas
             lcd_mostrar_colas(&colaIzq, &colaDer);
+
+            sent++;
+            ESP_LOGI(TAG, "CanalTask: barco %d (%s) despachado (%d/%d)",
+                     barco->id, shipTypeToString(barco->type), sent, w);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // Esperar a que TODOS los barcos despachados terminen de cruzar
+        for (int i = 0; i < sent; i++) {
+            ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
+        }
+
+        if (sent > 0) {
+            ESP_LOGI(TAG, "CanalTask: %d barcos de dirección %s completaron el cruce",
+                     sent, dirToString(current_dir));
+        }
+
+        // Cambiar dirección
+        current_dir = (current_dir == LEFT) ? RIGHT : LEFT;
+
+        // Pequeña pausa antes de procesar la otra dirección
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -383,15 +484,18 @@ void app_main(void) {
 
     buttonSemaphore = xSemaphoreCreateBinary();
     buttonQueue = xQueueCreate(10, sizeof(int));
+    canal_start_sem = xSemaphoreCreateBinary();
 
     init_buttons();
  
-    // Initialize the main LCD abstraction for ship tracking
+    // Inicializar LCDs de colas (0x23 y 0x26)
     lcd_init();
+
+    // Inicializar LCD del canal (0x27)
+    lcd_channel_init();
  
     xTaskCreate(CreadorTask, "Creador", 4096, NULL, 2, NULL);
-    //xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, NULL);
-    //xTaskCreate(ScrollTask, "Scroll", 2048, NULL, 1, NULL);
+    xTaskCreate(CanalTask, "Canal", 4096, NULL, 1, &canal_task_handle);
 
     init_uart();
     xTaskCreate(UartReceiverTask, "UartReceiver", 4096, NULL, 1, NULL);

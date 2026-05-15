@@ -18,6 +18,8 @@ void inicializar_barco(Ship* barco, int id, ShipType type, Direction dir, int sp
     barco->direction = dir;
     barco->speed = speed;
     barco->sem = xSemaphoreCreateBinary();
+    barco->channel_col = -1;
+    barco->task_handle = NULL;
 }
 
 /*

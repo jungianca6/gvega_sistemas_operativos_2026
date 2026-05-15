@@ -34,6 +34,13 @@ typedef struct Channel {
 } Channel;
 
 
+/**
+ * Puntero global al canal principal.
+ * Se establece con channel_set_global() después de init_channel().
+ */
+extern Channel* g_channel;
+
 void init_channel(Channel* channel, int length, int speed, int flow_control, int sign_interval, int w_parameter);
+void channel_set_global(Channel* ch);
 
 #endif // CHANNEL_H

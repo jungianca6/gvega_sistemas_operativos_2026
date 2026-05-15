@@ -4,7 +4,7 @@ Standard Speed: 1
 FishingSpeed: 2
 PatrolSpeed: 3
 QueueLeft: F,S,F,P,F,S
-QueueRight:S,F,F,S,S,P
+QueueRight:S,F,P,S,S,P
 SignDuration: 4
 ParameterW: 2
 QuantumRR: 1
