@@ -7,7 +7,7 @@
 typedef unsigned long long ull;
 typedef long long ll;
 
-#define N 1000000LL
+#define N 1000000000LL
 
 ull calcular_sumatoria(ll inicio, ll fin)
 {
@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
 
     if (rank == 0)
     {
-        printf("Iniciando calculo distribuido");
+        printf("Iniciando calculo distribuido\n");
         printf("Procesos MPI: %d\n", size);
 
         ll trabajo_por_nodo = N / size;
