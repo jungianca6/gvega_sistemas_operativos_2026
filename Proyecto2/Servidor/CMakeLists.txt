@@ -6,7 +6,7 @@ set(CMAKE_C_STANDARD 17)
 find_package(MPI REQUIRED)
 find_package(OpenMP REQUIRED)
 
-add_executable(Servidor main.c)
+add_executable(Servidor BasicServer.c)
 
 target_link_libraries(Servidor
         MPI::MPI_C
