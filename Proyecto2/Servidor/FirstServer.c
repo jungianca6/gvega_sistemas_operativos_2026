@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <omp.h>
 #include "word_counter.h"
 #define MAX_FILE_WORDS 100000
 
@@ -20,12 +21,13 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     char hostname[256];
-
     gethostname(hostname, sizeof(hostname));
 
-    printf("Rank %d ejecutandose en %s\n",
+    int num_threads = omp_get_max_threads();
+    printf("Rank %d ejecutandose en %s usando %d hilos\n",
            rank,
-           hostname);
+           hostname,
+           num_threads);
 
     if(argc < 2)
     {
