@@ -1,2 +1,9 @@
-# gvega_sistemas_operativos_2026
-Repositorio para talleres del curso Principio de Sistemas Operativos, semestre I-2026
+# Instalación de pesos Darknet
+La carpeta de Darknet ya esta lista para usar, no debe ser clonada como repositorio.
+Lo único que se ocupa es instalar los "weights" de YOLO para detectar los objetos.
+
+cd darknet
+
+wget https://pjreddie.com/media/files/yolov3-tiny.weights
+
+wget https://pjreddie.com/media/files/yolov3.weights
