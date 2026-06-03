@@ -340,3 +340,4 @@ cython_debug/
 /Proyecto1/SchedulingShips_IDF/.vscode
 Proyecto1/SchedulingShips_IDF/Project.md
 /Proyecto1/SchedulingShips_IDF/managed_components/espressif__cjson
+Proyecto2/darknet/*.weights
