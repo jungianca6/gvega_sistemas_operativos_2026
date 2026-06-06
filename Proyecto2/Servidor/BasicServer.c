@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "detector.h"
 
 typedef unsigned long long ull;
 typedef long long ll;
@@ -48,9 +49,9 @@ int main(int argc, char *argv[])
 
         char imagenes[3][256] =
         {
-            "images/dog.jpg",
-            "images/dog.jpg",
-            "images/dog.jpg"
+            "../images/dog.jpg",
+            "../images/dog.jpg",
+            "../images/dog.jpg"
         };
 
         //se tiene que enviar trabajo a cada nodo, ojo que no es por sockets
@@ -109,16 +110,11 @@ int main(int argc, char *argv[])
                rank,
                ruta_imagen);
 
-        /*
-         * Aqui ira Darknet posteriormente.
-         * Por ahora simulamos procesamiento.
-         */
+        printf("Rank %d ejecutando YOLO...\n",
+            rank);
 
-        sleep(2);
-
-        srand(rank);
-
-        int objetos_detectados = rand() % 20 + 1;
+        int objetos_detectados =
+            detectar_imagen(ruta_imagen);
 
         printf("Rank %d detecto %d objetos\n",
             rank,
