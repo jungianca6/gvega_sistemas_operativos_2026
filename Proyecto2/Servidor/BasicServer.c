@@ -31,7 +31,8 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     char hostname[256];
-    gethostname(hostname, 256);
+    //gethostname(hostname, 256);
+    gethostname(hostname, sizeof(hostname));
 
     int num_threads = omp_get_max_threads();
     printf("Rank %d ejecutandose en %s usando %d hilos\n",
@@ -41,102 +42,99 @@ int main(int argc, char *argv[])
 
     if (rank == 0)
     {
+        printf("\n=== SERVIDOR MPI ===\n");
         printf("Iniciando calculo distribuido\n");
         printf("Procesos MPI: %d\n", size);
 
-        ll trabajo_por_nodo = N / size;
-        ull resultado_final = 0;
+        char imagenes[3][256] =
+        {
+            "images/dog.jpg",
+            "images/dog.jpg",
+            "images/dog.jpg"
+        };
 
         //se tiene que enviar trabajo a cada nodo, ojo que no es por sockets
-        for (int destino = 1; destino < size; destino++)
+        /* Enviar una imagen a cada worker */
+        for(int destino = 1; destino < size && destino <= 3; destino++)
         {
-            ll rango [2];
+            MPI_Send(imagenes[destino - 1],
+                     256,
+                     MPI_CHAR,
+                     destino,
+                     0,
+                     MPI_COMM_WORLD);
 
-            rango [0] = destino * trabajo_por_nodo +1;
-
-            if (destino == size -1)
-                rango[1]=N;
-            else
-                rango[1] = (destino+1) * trabajo_por_nodo;
-            //No utilizar scatter ni ninguna que tenga que ver con broadcast
-            MPI_Send(rango,
-                2,
-                MPI_LONG_LONG,
-                destino,
-                0,
-                MPI_COMM_WORLD);
-            printf("Maestro envio rango [%lld - %lld] a rank %d\n",
-                rango[0],
-                rango[1],
-                destino);
+            printf("Servidor envio %s a rank %d\n",
+                   imagenes[destino - 1],
+                   destino);
         }
-        // El maestro también trabaja
-        ll mi_inicio = 1;
-        ll mi_fin = trabajo_por_nodo;
+        printf("\nEsperando resultados...\n\n");
 
-        ull suma_local = calcular_sumatoria(mi_inicio, mi_fin);
-
-        resultado_final += suma_local;
-
-        printf("Maestro calculo local: %llu\n", suma_local);
-
-        // Recibir resultados de workers
-        for(int origen = 1; origen < size; origen++)
+        /* Recibir resultados */
+        for(int origen = 1; origen < size && origen <= 3; origen++)
         {
-            ull parcial;
+            int objetos_detectados;
 
-            MPI_Recv(&parcial,
+            MPI_Recv(&objetos_detectados,
                      1,
-                     MPI_UNSIGNED_LONG_LONG,
+                     MPI_INT,
                      origen,
                      0,
                      MPI_COMM_WORLD,
                      MPI_STATUS_IGNORE);
 
-            printf("Maestro recibio %llu desde rank %d\n",
-                   parcial,
-                   origen);
-
-            resultado_final += parcial;
+            printf("Servidor recibio %d objetos desde rank %d\n",
+                objetos_detectados,
+                origen);
+            fflush(stdout);
         }
-        printf("Resultado final = %llu\n", resultado_final);
-    }
-    //Este seria el codigo que ejecutarian los esclavos
+
+        printf("\nProcesamiento distribuido finalizado.\n");
+
+        }
     else
     {
-        ll rango[2];
+        char ruta_imagen[256];
 
-        //Aqui se reciben los datos
-        MPI_Recv(rango,
-            2,
-            MPI_LONG_LONG,
-            0,
-            0,
-            MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
+        /* Recibir ruta de imagen */
+        MPI_Recv(ruta_imagen,
+                 256,
+                 MPI_CHAR,
+                 0,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
 
-        ll inicio = rango[0];
-        ll fin = rango [1];
-
-        printf("Rank %d procesando [%lld - %lld]\n",
+        printf("Rank %d recibio imagen: %s\n",
                rank,
-               inicio,
-               fin);
+               ruta_imagen);
 
-        ull suma_parcial = calcular_sumatoria(inicio, fin);
+        /*
+         * Aqui ira Darknet posteriormente.
+         * Por ahora simulamos procesamiento.
+         */
 
-        printf("Rank %d calculo %llu\n",
-               rank,
-               suma_parcial);
+        sleep(2);
 
-        //Aqui se devuelve el resultado
-        MPI_Send(&suma_parcial,
-            1,
-            MPI_UNSIGNED_LONG_LONG,
-            0,
-            0,
-            MPI_COMM_WORLD);
+        srand(rank);
+
+        int objetos_detectados = rand() % 20 + 1;
+
+        printf("Rank %d detecto %d objetos\n",
+            rank,
+            objetos_detectados);
+        fflush(stdout);
+
+        /* Enviar resultado al servidor */
+        MPI_Send(&objetos_detectados,
+                 1,
+                 MPI_INT,
+                 0,
+                 0,
+                 MPI_COMM_WORLD);
     }
+
     MPI_Finalize();
+
     return 0;
 }
