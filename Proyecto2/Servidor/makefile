@@ -1,6 +1,8 @@
 CC=mpicc
 
-CFLAGS=-Wall -Wextra -O2 -fopenmp
+# Incluir chacha_lib en el path de compilación para poder usar
+# #include "chacha.h" directamente desde FirstServer.c.
+CFLAGS=-Wall -Wextra -O2 -fopenmp -I$(CHACHA_DIR)
 
 TARGET=Servidor
 TEXTO=texto.txt
@@ -12,8 +14,10 @@ LIBCHACHA=$(CHACHA_DIR)/libchacha.a
 CHACHATEST_SRC=$(CHACHA_DIR)/chacha_lib_test_mpi.c
 CHACHATEST_BIN=chacha_lib_test
 
-all:
-	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
+all: libchacha $(TARGET)
+
+$(TARGET): $(SRC) libchacha
+	$(CC) $(CFLAGS) $(SRC) -L$(CHACHA_DIR) -lchacha -lsodium -o $(TARGET)
 
 run:
 	mpirun -np 4 ./$(TARGET) $(TEXTO)
@@ -41,4 +45,4 @@ run_chacha_lib:
 debug:
 	$(CC) -g $(CFLAGS) $(SRC) -o $(TARGET)
 clean:
-	rm -f $(TARGET) $(CHACHA_TARGET)
+	rm -f $(TARGET) $(CHACHA_TARGET) $(CHACHATEST_BIN) $(CHACHA_DIR)/chacha.o $(LIBCHACHA)

@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <omp.h>
+#include <sodium.h>
+#include "chacha.h"  // API de libchacha para cifrado/desifrado XChaCha20-Poly1305
 #include "word_counter.h"
 #define MAX_FILE_WORDS 100000
 
@@ -113,6 +115,11 @@ int main(int argc, char *argv[])
         WordCount tabla_global[MAX_WORDS];
         int global_count = 0;
 
+        /* Generar y compartir la clave de cifrado con los nodos */
+        unsigned char key[CHACHA_KEYBYTES];
+        randombytes_buf(key, CHACHA_KEYBYTES);
+        MPI_Bcast(key, CHACHA_KEYBYTES, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
         for(int destino = 1;
             destino < size;
             destino++)
@@ -135,6 +142,31 @@ int main(int argc, char *argv[])
                     palabras_por_nodo;
             }
 
+            unsigned long long plain_len = (unsigned long long)cantidad * MAX_WORD;
+            unsigned char nonce[CHACHA_NONCEBYTES];
+            unsigned char *ciphertext = malloc(plain_len + crypto_aead_xchacha20poly1305_ietf_ABYTES);
+            unsigned long long cipher_len = 0;
+
+            if(ciphertext == NULL)
+            {
+                printf("Error de memoria\n");
+                MPI_Finalize();
+                return 1;
+            }
+
+            if(chacha_encrypt(key,
+                              (const unsigned char *)(palabras + inicio),
+                              plain_len,
+                              nonce,
+                              ciphertext,
+                              &cipher_len) != 0)
+            {
+                printf("Error cifrando palabras\n");
+                free(ciphertext);
+                MPI_Finalize();
+                return 1;
+            }
+
             MPI_Send(
                 &cantidad,
                 1,
@@ -144,17 +176,35 @@ int main(int argc, char *argv[])
                 MPI_COMM_WORLD);
 
             MPI_Send(
-                palabras + inicio,
-                cantidad * MAX_WORD,
-                MPI_CHAR,
+                &cipher_len,
+                1,
+                MPI_UNSIGNED_LONG_LONG,
+                destino,
+                0,
+                MPI_COMM_WORLD);
+
+            MPI_Send(
+                nonce,
+                CHACHA_NONCEBYTES,
+                MPI_UNSIGNED_CHAR,
+                destino,
+                0,
+                MPI_COMM_WORLD);
+
+            MPI_Send(
+                ciphertext,
+                cipher_len,
+                MPI_UNSIGNED_CHAR,
                 destino,
                 0,
                 MPI_COMM_WORLD);
 
             printf(
-                "Maestro envio %d palabras a rank %d\n",
+                "Maestro envio %d palabras cifradas a rank %d\n",
                 cantidad,
                 destino);
+
+            free(ciphertext);
         }
 
         int mi_cantidad =
@@ -178,31 +228,65 @@ int main(int argc, char *argv[])
             origen < size;
             origen++)
         {
-            int unicas;
+            unsigned long long cipher_len2 = 0;
+            MPI_Recv(
+                &cipher_len2,
+                1,
+                MPI_UNSIGNED_LONG_LONG,
+                origen,
+                0,
+                MPI_COMM_WORLD,
+                MPI_STATUS_IGNORE);
+
+            unsigned char nonce2[CHACHA_NONCEBYTES];
+            MPI_Recv(
+                nonce2,
+                CHACHA_NONCEBYTES,
+                MPI_UNSIGNED_CHAR,
+                origen,
+                0,
+                MPI_COMM_WORLD,
+                MPI_STATUS_IGNORE);
+
+            unsigned char *ciphertext2 = malloc(cipher_len2);
+            if(ciphertext2 == NULL)
+            {
+                printf("Error de memoria al recibir tabla de rank %d\n", origen);
+                MPI_Finalize();
+                return 1;
+            }
 
             MPI_Recv(
-                &unicas,
-                1,
-                MPI_INT,
+                ciphertext2,
+                cipher_len2,
+                MPI_UNSIGNED_CHAR,
                 origen,
                 0,
                 MPI_COMM_WORLD,
                 MPI_STATUS_IGNORE);
 
             WordCount tabla_worker[MAX_WORDS];
+            unsigned long long decrypted_len2 = 0;
 
-            MPI_Recv(
-                tabla_worker,
-                unicas *
-                sizeof(WordCount),
-                MPI_BYTE,
-                origen,
-                0,
-                MPI_COMM_WORLD,
-                MPI_STATUS_IGNORE);
+            if(chacha_decrypt(key,
+                              ciphertext2,
+                              cipher_len2,
+                              nonce2,
+                              (unsigned char *)tabla_worker,
+                              &decrypted_len2) != 0)
+            {
+                printf("Error descifrando tabla del rank %d\n", origen);
+                free(ciphertext2);
+                MPI_Finalize();
+                return 1;
+            }
+
+            free(ciphertext2);
+
+            int unicas = (int)(decrypted_len2 / sizeof(WordCount));
 
             printf(
-                "Recibida tabla desde rank %d (%d palabras unicas)\n",
+                "Recibida tabla cifrada desde rank %d (%d palabras unicas)\n",
                 origen,
                 unicas);
 
@@ -243,6 +327,9 @@ int main(int argc, char *argv[])
     }
     else
     {
+        unsigned char key[CHACHA_KEYBYTES];
+        MPI_Bcast(key, CHACHA_KEYBYTES, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
         int cantidad;
 
         MPI_Recv(
@@ -254,16 +341,68 @@ int main(int argc, char *argv[])
             MPI_COMM_WORLD,
             MPI_STATUS_IGNORE);
 
-        char palabras_locales[MAX_FILE_WORDS][MAX_WORD];
-
+        unsigned long long cipher_len = 0;
         MPI_Recv(
-            palabras_locales,
-            cantidad * MAX_WORD,
-            MPI_CHAR,
+            &cipher_len,
+            1,
+            MPI_UNSIGNED_LONG_LONG,
             0,
             0,
             MPI_COMM_WORLD,
             MPI_STATUS_IGNORE);
+
+        unsigned char nonce[CHACHA_NONCEBYTES];
+        MPI_Recv(
+            nonce,
+            CHACHA_NONCEBYTES,
+            MPI_UNSIGNED_CHAR,
+            0,
+            0,
+            MPI_COMM_WORLD,
+            MPI_STATUS_IGNORE);
+
+        unsigned char *ciphertext = malloc(cipher_len);
+        if(ciphertext == NULL)
+        {
+            printf("Error de memoria\n");
+            MPI_Finalize();
+            return 1;
+        }
+
+        MPI_Recv(
+            ciphertext,
+            cipher_len,
+            MPI_UNSIGNED_CHAR,
+            0,
+            0,
+            MPI_COMM_WORLD,
+            MPI_STATUS_IGNORE);
+
+        char (*palabras_locales)[MAX_WORD] = malloc(cantidad * MAX_WORD);
+        if(palabras_locales == NULL)
+        {
+            printf("Error de memoria\n");
+            free(ciphertext);
+            MPI_Finalize();
+            return 1;
+        }
+
+        unsigned long long decrypted_len = 0;
+        if(chacha_decrypt(key,
+                         ciphertext,
+                         cipher_len,
+                         nonce,
+                         (unsigned char *)palabras_locales,
+                         &decrypted_len) != 0)
+        {
+            printf("Error descifrando palabras en rank %d\n", rank);
+            free(ciphertext);
+            free(palabras_locales);
+            MPI_Finalize();
+            return 1;
+        }
+
+        free(ciphertext);
 
         WordCount tabla_local[MAX_WORDS];
 
@@ -279,22 +418,58 @@ int main(int argc, char *argv[])
             cantidad,
             unicas);
 
+        unsigned long long plaintext_len = unicas * sizeof(WordCount);
+        unsigned char nonce2[CHACHA_NONCEBYTES];
+        unsigned long long cipher_len2 = 0;
+        unsigned char *ciphertext2 = malloc(plaintext_len + crypto_aead_xchacha20poly1305_ietf_ABYTES);
+        if(ciphertext2 == NULL)
+        {
+            printf("Error de memoria\n");
+            free(palabras_locales);
+            MPI_Finalize();
+            return 1;
+        }
+
+        if(chacha_encrypt(key,
+                          (const unsigned char *)tabla_local,
+                          plaintext_len,
+                          nonce2,
+                          ciphertext2,
+                          &cipher_len2) != 0)
+        {
+            printf("Error cifrando tabla local en rank %d\n", rank);
+            free(ciphertext2);
+            free(palabras_locales);
+            MPI_Finalize();
+            return 1;
+        }
+
         MPI_Send(
-            &unicas,
+            &cipher_len2,
             1,
-            MPI_INT,
+            MPI_UNSIGNED_LONG_LONG,
             0,
             0,
             MPI_COMM_WORLD);
 
         MPI_Send(
-            tabla_local,
-            unicas *
-            sizeof(WordCount),
-            MPI_BYTE,
+            nonce2,
+            CHACHA_NONCEBYTES,
+            MPI_UNSIGNED_CHAR,
             0,
             0,
             MPI_COMM_WORLD);
+
+        MPI_Send(
+            ciphertext2,
+            cipher_len2,
+            MPI_UNSIGNED_CHAR,
+            0,
+            0,
+            MPI_COMM_WORLD);
+
+        free(ciphertext2);
+        free(palabras_locales);
     }
 
     MPI_Finalize();
