@@ -3,48 +3,85 @@
 #include <linux/module.h>
 
 #include <linux/proc_fs.h>
-#include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/jiffies.h>
 
-#include <asm/io.h>
+#include <linux/gpio/consumer.h>
 
 #define PENPLTTR_MAX_USER_SIZE 1024
 #define PENPLTTR_STATUS_BUF_SIZE 2048
+#define PENPLTTR_MAX_PINS 28
 
-#define BCM2837_GPIO_ADDRESS 0x3F200000
+/* GPIO offset for BCM2835 on newer Raspberry Pi OS kernels */
+#define GPIO_OFFSET 512
 
-/* ---- Operation tracking ---- */
-static unsigned long op_count = 0;           /* Total write operations */
-static unsigned int  pin_states[28] = {0};   /* Last known state per pin */
-static unsigned long pin_writes[28] = {0};   /* Write count per pin */
-static unsigned long load_jiffies = 0;       /* When the driver was loaded */
+/* ---- Per-pin tracking ---- */
+static struct gpio_desc *pin_descs[PENPLTTR_MAX_PINS] = {NULL};
+static unsigned int  pin_states[PENPLTTR_MAX_PINS] = {0};
+static unsigned long pin_writes[PENPLTTR_MAX_PINS] = {0};
 
+/* ---- Global state ---- */
+static unsigned long op_count = 0;
+static unsigned long load_jiffies = 0;
 static struct proc_dir_entry *penplttr_proc = NULL;
-
 static char data_buffer[PENPLTTR_MAX_USER_SIZE + 1] = {0};
 
-static unsigned int *gpio_registers = NULL;
-
-static void gpio_pin_on(unsigned int pin)
+/**
+ * Request a GPIO pin using the consumer API.
+ * Translates BCM pin number to Linux GPIO number (BCM + GPIO_OFFSET).
+ */
+static int penplttr_request_pin(unsigned int pin)
 {
-	unsigned int fsel_index = pin / 10;
-	unsigned int fsel_bitpos = pin % 10;
-	unsigned int *gpio_fsel = gpio_registers + fsel_index;
-	unsigned int *gpio_on_register = (unsigned int *)((char *)gpio_registers + 0x1c);
+	struct gpio_desc *desc;
+	int linux_gpio;
+	int ret;
 
-	*gpio_fsel &= ~(7 << (fsel_bitpos * 3));
-	*gpio_fsel |= (1 << (fsel_bitpos * 3));
-	*gpio_on_register |= (1 << pin);
+	/* Already requested */
+	if (pin_descs[pin])
+		return 0;
 
-	return;
+	/* Translate BCM pin → Linux GPIO number */
+	linux_gpio = pin + GPIO_OFFSET;
+
+	/* Get the GPIO descriptor */
+	desc = gpio_to_desc(linux_gpio);
+	if (!desc)
+	{
+		printk("penplttr: gpio_to_desc(BCM %d, linux %d) returned NULL\n",
+			pin, linux_gpio);
+		return -EINVAL;
+	}
+
+	/* Configure as output, initially LOW */
+	ret = gpiod_direction_output(desc, 0);
+	if (ret)
+	{
+		printk("penplttr: gpiod_direction_output(BCM %d) failed: %d\n", pin, ret);
+		return ret;
+	}
+
+	pin_descs[pin] = desc;
+	printk("penplttr: GPIO BCM %d (linux %d) configured as output\n",
+		pin, linux_gpio);
+	return 0;
 }
 
-static void gpio_pin_off(unsigned int pin)
+/**
+ * Release all GPIO pins — set them LOW on unload.
+ */
+static void penplttr_release_all_pins(void)
 {
-	unsigned int *gpio_off_register = (unsigned int *)((char *)gpio_registers + 0x28);
-	*gpio_off_register |= (1 << pin);
-	return;
+	int i;
+
+	for (i = 0; i < PENPLTTR_MAX_PINS; i++)
+	{
+		if (pin_descs[i])
+		{
+			gpiod_set_value(pin_descs[i], 0);
+			pin_descs[i] = NULL;
+			printk("penplttr: GPIO BCM %d set LOW and released\n", i);
+		}
+	}
 }
 
 static ssize_t penplttr_read(struct file *file, char __user *user, size_t size, loff_t *off)
@@ -54,33 +91,34 @@ static ssize_t penplttr_read(struct file *file, char __user *user, size_t size, 
 	int i;
 	unsigned long uptime_secs;
 
-	/* Only produce output on first read (offset 0) */
 	if (*off > 0)
 		return 0;
 
 	uptime_secs = (jiffies - load_jiffies) / HZ;
 
 	len += snprintf(buf + len, sizeof(buf) - len,
-		"=== PenPlttr GPIO Driver v1.0 ===\n"
+		"=== PenPlttr GPIO Driver v2.2 ===\n"
 		"Status: ACTIVE\n"
+		"Backend: gpio/consumer (via pinctrl-bcm2835)\n"
+		"GPIO offset: %d\n"
 		"Uptime: %lu seconds\n"
-		"Total operations: %lu\n"
-		"GPIO base: 0x%08X (ioremap)\n\n",
-		uptime_secs, op_count, BCM2837_GPIO_ADDRESS);
+		"Total operations: %lu\n\n",
+		GPIO_OFFSET, uptime_secs, op_count);
 
 	len += snprintf(buf + len, sizeof(buf) - len,
-		"Pin  | State | Writes\n"
-		"-----|-------|-------\n");
+		"BCM Pin | State | Writes | Linux GPIO\n"
+		"--------|-------|--------|----------\n");
 
-	for (i = 0; i < 28; i++)
+	for (i = 0; i < PENPLTTR_MAX_PINS; i++)
 	{
 		if (pin_writes[i] > 0)
 		{
 			len += snprintf(buf + len, sizeof(buf) - len,
-				"  %2d |   %s |   %lu\n",
+				"     %2d |   %s |   %4lu |       %d\n",
 				i,
 				pin_states[i] ? "ON " : "OFF",
-				pin_writes[i]);
+				pin_writes[i],
+				i + GPIO_OFFSET);
 		}
 	}
 
@@ -104,6 +142,7 @@ static ssize_t penplttr_write(struct file *file, const char __user *user, size_t
 {
 	unsigned int pin = UINT_MAX;
 	unsigned int value = UINT_MAX;
+	int ret;
 
 	memset(data_buffer, 0x0, sizeof(data_buffer));
 
@@ -123,9 +162,10 @@ static ssize_t penplttr_write(struct file *file, const char __user *user, size_t
 		return size;
 	}
 
-	if (pin > 27)
+	if (pin >= PENPLTTR_MAX_PINS)
 	{
-		printk("penplttr: invalid pin number %d (valid range: 0-27)\n", pin);
+		printk("penplttr: invalid pin number %d (valid range: 0-%d)\n",
+			pin, PENPLTTR_MAX_PINS - 1);
 		return size;
 	}
 
@@ -135,15 +175,17 @@ static ssize_t penplttr_write(struct file *file, const char __user *user, size_t
 		return size;
 	}
 
-	printk("penplttr: setting pin %d to %d\n", pin, value);
-	if (value == 1)
+	/* Request pin on first use */
+	ret = penplttr_request_pin(pin);
+	if (ret)
 	{
-		gpio_pin_on(pin);
+		printk("penplttr: could not acquire GPIO BCM %d: error %d\n", pin, ret);
+		return size;
 	}
-	else if (value == 0)
-	{
-		gpio_pin_off(pin);
-	}
+
+	/* Set the pin value using the GPIO consumer API */
+	printk("penplttr: setting BCM pin %d to %d (via gpiod_set_value)\n", pin, value);
+	gpiod_set_value(pin_descs[pin], value);
 
 	/* Track the operation */
 	op_count++;
@@ -161,22 +203,13 @@ static const struct proc_ops penplttr_proc_fops =
 
 static int __init penplttr_gpio_driver_init(void)
 {
-	printk("penplttr: GPIO driver loading\n");
+	printk("penplttr: GPIO driver v2.2 loading (gpio/consumer, offset=%d)\n",
+		GPIO_OFFSET);
 
-	gpio_registers = (int *)ioremap(BCM2837_GPIO_ADDRESS, PAGE_SIZE);
-	if (gpio_registers == NULL)
-	{
-		printk("penplttr: failed to map GPIO memory\n");
-		return -1;
-	}
-
-	printk("penplttr: successfully mapped GPIO memory\n");
-
-	/* Create an entry in the proc-fs */
+	/* Create the proc-fs entry */
 	penplttr_proc = proc_create("penplttr-gpio", 0666, NULL, &penplttr_proc_fops);
 	if (penplttr_proc == NULL)
 	{
-		iounmap(gpio_registers);
 		printk("penplttr: failed to create /proc/penplttr-gpio\n");
 		return -1;
 	}
@@ -190,8 +223,9 @@ static int __init penplttr_gpio_driver_init(void)
 static void __exit penplttr_gpio_driver_exit(void)
 {
 	printk("penplttr: GPIO driver unloading\n");
-	iounmap(gpio_registers);
+	penplttr_release_all_pins();
 	proc_remove(penplttr_proc);
+	printk("penplttr: all resources released\n");
 	return;
 }
 
@@ -200,5 +234,5 @@ module_exit(penplttr_gpio_driver_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("PenPlttr");
-MODULE_DESCRIPTION("GPIO driver for Raspberry Pi 3B+ pen plotter");
-MODULE_VERSION("1.0");
+MODULE_DESCRIPTION("GPIO driver for Raspberry Pi 3B+ pen plotter (gpio/consumer)");
+MODULE_VERSION("2.2");

@@ -13,10 +13,6 @@ CC     = gcc
 CFLAGS = -Wall -Wextra -O2
 AR     = ar
 
-# Platform device address (BCM2837 on RPi 3B+)
-GPIO_DEVICE = 3f200000.gpio
-BUILTIN_DRV = pinctrl-bcm2835
-
 # ---- Default: build everything ----
 all: driver lib
 
@@ -40,21 +36,19 @@ blink_test: blink_test.c libwolfPlotter.a
 test: blink_test
 
 # ---- Load: insert our driver ----
-# NOTE: pinctrl-bcm2835 has suppress_bind_attrs=true on this kernel,
-#       so sysfs unbind is not available. Our driver coexists safely
-#       because it uses ioremap for direct register access, and the
-#       GPIO SET/CLR registers are atomic (write-1-to-affect-pin).
+# Our driver uses gpio/consumer API — it works WITH pinctrl-bcm2835,
+# requesting pins through the kernel GPIO framework. No unbind needed.
 load:
 	@echo ">>> Inserting penplttr-gpio-driver.ko..."
 	sudo insmod penplttr-gpio-driver.ko
 	@echo ">>> Driver loaded. /proc/penplttr-gpio is ready."
 
 # ---- Unload: remove our driver ----
-# pinctrl-bcm2835 remains active throughout; nothing to restore.
+# All GPIO pins are released back to the kernel automatically.
 unload:
 	@echo ">>> Removing penplttr-gpio-driver..."
 	sudo rmmod penplttr-gpio-driver
-	@echo ">>> Driver removed."
+	@echo ">>> Driver removed. All GPIO pins released."
 
 # ---- Run a test ----
 run:
