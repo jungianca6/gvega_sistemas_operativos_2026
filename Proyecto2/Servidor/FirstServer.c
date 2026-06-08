@@ -196,10 +196,14 @@ int main(int argc, char *argv[])
         }
 
         int total_objects = 0;
+        int global_counts[NUM_CLASSES] = {0};
+        char **names = get_labels("../darknet/data/coco.names");
 
         for (int origen = 1; origen <= IMAGE_WORKERS; origen++)
         {
             int detected = 0;
+            int class_counts[NUM_CLASSES] = {0};
+
             MPI_Recv(&detected,
                      1,
                      MPI_INT,
@@ -207,12 +211,82 @@ int main(int argc, char *argv[])
                      0,
                      MPI_COMM_WORLD,
                      MPI_STATUS_IGNORE);
+            MPI_Recv(class_counts,
+                     NUM_CLASSES,
+                     MPI_INT,
+                     origen,
+                     0,
+                     MPI_COMM_WORLD,
+                     MPI_STATUS_IGNORE);
 
-            printf("Rank %d detecto %d objetos\n", origen, detected);
+            printf("Rank %d detecto %d objetos en %s\n",
+                   origen,
+                   detected,
+                   argv[origen]);
+
+            if (detected > 0)
+            {
+                int best_class = -1;
+                int best_count = 0;
+                int first = 1;
+                printf("  Clases detectadas:");
+                for (int c = 0; c < NUM_CLASSES; c++)
+                {
+                    if (class_counts[c] > 0)
+                    {
+                        const char *label = (names && names[c]) ? names[c] : "clase";
+                        if (!first) printf(",");
+                        printf(" %s(%d)", label, class_counts[c]);
+                        first = 0;
+                        if (class_counts[c] > best_count)
+                        {
+                            best_count = class_counts[c];
+                            best_class = c;
+                        }
+                        global_counts[c] += class_counts[c];
+                    }
+                }
+                if (first)
+                {
+                    printf(" ninguna");
+                }
+                printf("\n");
+
+                if (best_class >= 0)
+                {
+                    const char *best_name = (names && names[best_class]) ? names[best_class] : "clase";
+                    printf("  Mayor frecuencia: %s (%d)\n",
+                           best_name,
+                           best_count);
+                }
+            }
+            else
+            {
+                printf("  No se detectaron objetos en esta imagen.\n");
+            }
+
             total_objects += detected;
         }
 
+        int overall_best = -1;
+        int overall_best_count = 0;
+        for (int c = 0; c < NUM_CLASSES; c++)
+        {
+            if (global_counts[c] > overall_best_count)
+            {
+                overall_best_count = global_counts[c];
+                overall_best = c;
+            }
+        }
+
         printf("Total de objetos detectados: %d\n", total_objects);
+        if (overall_best >= 0)
+        {
+            const char *overall_name = (names && names[overall_best]) ? names[overall_best] : "clase";
+            printf("Objeto más frecuente en todas las imágenes: %s (%d)\n",
+                   overall_name,
+                   overall_best_count);
+        }
     }
     else
     {
@@ -309,10 +383,18 @@ int main(int argc, char *argv[])
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
+        printf("Rank %d: Imagen recibida %s -> %s (bytes descifrados=%llu)\n",
+               rank,
+               image_path,
+               tmp_path,
+               plain_len);
+        fflush(stdout);
+
         free(ciphertext);
         free(plaintext);
 
-        int detected = detectar_imagen(tmp_path);
+        int class_counts[NUM_CLASSES] = {0};
+        int detected = detectar_imagen(rank, tmp_path, class_counts);
         if (detected < 0)
         {
             detected = 0;
@@ -321,6 +403,12 @@ int main(int argc, char *argv[])
 
         MPI_Send(&detected,
                  1,
+                 MPI_INT,
+                 0,
+                 0,
+                 MPI_COMM_WORLD);
+        MPI_Send(class_counts,
+                 NUM_CLASSES,
                  MPI_INT,
                  0,
                  0,
