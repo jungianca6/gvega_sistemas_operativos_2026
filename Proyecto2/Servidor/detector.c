@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "../darknet/include/darknet.h"
 #include "detector.h"
@@ -7,6 +8,12 @@
 #define CFG_FILE     "../darknet/cfg/yolov3.cfg"
 #define WEIGHTS_FILE "../darknet/yolov3.weights"
 #define NAMES_FILE   "../darknet/data/coco.names"
+
+static int path_exists(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0;
+}
 
 #define NUM_CLASSES  80
 
@@ -17,11 +24,25 @@
 int detectar_imagen(const char *ruta_imagen)
 {
     printf("Procesando imagen: %s\n", ruta_imagen);
-
     printf("CFG: %s\n", CFG_FILE);
     printf("WEIGHTS: %s\n", WEIGHTS_FILE);
     printf("NAMES: %s\n", NAMES_FILE);
     fflush(stdout);
+
+    if (!path_exists(CFG_FILE) || !path_exists(WEIGHTS_FILE) || !path_exists(NAMES_FILE))
+    {
+        fprintf(stderr,
+                "Error: falta archivo de modelo Darknet.\n"
+                "  CFG: %s\n"
+                "  WEIGHTS: %s\n"
+                "  NAMES: %s\n",
+                CFG_FILE,
+                WEIGHTS_FILE,
+                NAMES_FILE);
+        fprintf(stderr,
+                "Compruebe que los pesos YOLO estén presentes en el repositorio o configure los archivos correctos.\n");
+        return 0;
+    }
 
     /* Cargar red YOLO */
     network *net =
@@ -29,6 +50,13 @@ int detectar_imagen(const char *ruta_imagen)
             CFG_FILE,
             WEIGHTS_FILE,
             0);
+    if (!net)
+    {
+        fprintf(stderr, "Error cargando la red YOLO desde %s y %s\n",
+                CFG_FILE,
+                WEIGHTS_FILE);
+        return 0;
+    }
 
     set_batch_network(net, 1);
 
@@ -43,6 +71,12 @@ int detectar_imagen(const char *ruta_imagen)
             (char *)ruta_imagen,
             0,
             0);
+    if (!im.data)
+    {
+        fprintf(stderr, "No se pudo cargar la imagen: %s\n", ruta_imagen);
+        free_network(net);
+        return 0;
+    }
 
     image resized =
         letterbox_image(

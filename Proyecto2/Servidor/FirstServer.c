@@ -2,478 +2,332 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <omp.h>
 #include <sodium.h>
-#include "chacha.h"  // API de libchacha para cifrado/desifrado XChaCha20-Poly1305
-#include "word_counter.h"
-#define MAX_FILE_WORDS 100000
+#include "chacha.h"
+#include "detector.h"
 
+#define IMAGE_WORKERS 3
+#define MAX_IMAGE_PATH 512
+#define TEMP_DIR "/tmp"
 
+static int read_file(const char *path,
+                     unsigned char **out,
+                     unsigned long long *len)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file) return -1;
+
+    if (fseek(file, 0, SEEK_END) != 0)
+    {
+        fclose(file);
+        return -1;
+    }
+
+    long size = ftell(file);
+    if (size < 0)
+    {
+        fclose(file);
+        return -1;
+    }
+
+    rewind(file);
+
+    unsigned char *buffer = malloc((size_t)size);
+    if (!buffer)
+    {
+        fclose(file);
+        return -1;
+    }
+
+    if (fread(buffer, 1, (size_t)size, file) != (size_t)size)
+    {
+        free(buffer);
+        fclose(file);
+        return -1;
+    }
+
+    fclose(file);
+    *out = buffer;
+    *len = (unsigned long long)size;
+    return 0;
+}
+
+static int write_file(const char *path,
+                      const unsigned char *data,
+                      unsigned long long len)
+{
+    FILE *file = fopen(path, "wb");
+    if (!file) return -1;
+
+    if (fwrite(data, 1, (size_t)len, file) != (size_t)len)
+    {
+        fclose(file);
+        return -1;
+    }
+
+    fclose(file);
+    return 0;
+}
+
+static const char *get_basename(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+static int write_temp_image(int rank,
+                            const char *original_path,
+                            const unsigned char *data,
+                            unsigned long long len,
+                            char *out_path,
+                            size_t out_path_size)
+{
+    const char *base = get_basename(original_path);
+    int written = snprintf(out_path,
+                           out_path_size,
+                           "%s/mpi_rank_%d_%s",
+                           TEMP_DIR,
+                           rank,
+                           base);
+    if (written < 0 || (size_t)written >= out_path_size)
+    {
+        return -1;
+    }
+
+    return write_file(out_path, data, len);
+}
 
 int main(int argc, char *argv[])
 {
-    int rank;
-    int size;
-
     MPI_Init(&argc, &argv);
 
+    int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    char hostname[256];
-    gethostname(hostname, sizeof(hostname));
-
-    int num_threads = omp_get_max_threads();
-    printf("Rank %d ejecutandose en %s usando %d hilos\n",
-           rank,
-           hostname,
-           num_threads);
-
-    if(argc < 2)
+    if (size != IMAGE_WORKERS + 1)
     {
-        if(rank == 0)
+        if (rank == 0)
         {
-            printf("Uso:\n");
-            printf("./Servidor archivo.txt\n");
+            fprintf(stderr,
+                    "Uso: mpirun -np 4 ./Servidor imagen1 imagen2 imagen3\n");
         }
 
         MPI_Finalize();
         return 1;
     }
 
-    if(rank == 0)
+    if (rank == 0 && argc != IMAGE_WORKERS + 1)
     {
-        FILE *file = fopen(argv[1], "r");
+        fprintf(stderr,
+                "Debe especificar %d rutas de imagen\n",
+                IMAGE_WORKERS);
+        MPI_Finalize();
+        return 1;
+    }
 
-        if(file == NULL)
+    if (sodium_init() < 0)
+    {
+        if (rank == 0)
         {
-            printf("No se pudo abrir el archivo\n");
-
-            MPI_Finalize();
-            return 1;
+            fprintf(stderr, "Error inicializando libsodium\n");
         }
+        MPI_Finalize();
+        return 1;
+    }
 
-        char texto[50000];
+    unsigned char key[CHACHA_KEYBYTES];
+    randombytes_buf(key, CHACHA_KEYBYTES);
+    MPI_Bcast(key, CHACHA_KEYBYTES, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
-        size_t leidos =
-            fread(
-                texto,
-                sizeof(char),
-                sizeof(texto)-1,
-                file);
-
-        texto[leidos] = '\0';
-
-        fclose(file);
-
-        char palabras[MAX_FILE_WORDS][MAX_WORD];
-
-        int total_palabras = 0;
-
-        char *token =
-            strtok(
-                texto,
-                " \n\t\r");
-
-        while(token != NULL)
+    if (rank == 0)
+    {
+        for (int destino = 1; destino <= IMAGE_WORKERS; destino++)
         {
-            char palabra_limpia[MAX_WORD];
+            const char *image_path = argv[destino];
+            unsigned char *image_data = NULL;
+            unsigned long long image_len = 0;
 
-            strncpy(
-                palabra_limpia,
-                token,
-                MAX_WORD - 1);
-
-            palabra_limpia[MAX_WORD - 1] = '\0';
-
-            normalizar_palabra(
-                palabra_limpia);
-
-            if(strlen(palabra_limpia) > 0)
+            if (read_file(image_path, &image_data, &image_len) != 0)
             {
-                strcpy(
-                    palabras[total_palabras],
-                    palabra_limpia);
-
-                total_palabras++;
+                fprintf(stderr,
+                        "No se pudo leer la imagen: %s\n",
+                        image_path);
+                MPI_Abort(MPI_COMM_WORLD, 1);
             }
 
-            token =
-                strtok(
-                    NULL,
-                    " \n\t\r");
-        }
-        printf(
-            "Total palabras: %d\n",
-            total_palabras);
-
-        int palabras_por_nodo =
-            total_palabras / size;
-
-        WordCount tabla_global[MAX_WORDS];
-        int global_count = 0;
-
-        /* Generar y compartir la clave de cifrado con los nodos */
-        unsigned char key[CHACHA_KEYBYTES];
-        randombytes_buf(key, CHACHA_KEYBYTES);
-        MPI_Bcast(key, CHACHA_KEYBYTES, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-
-        for(int destino = 1;
-            destino < size;
-            destino++)
-        {
-            int inicio =
-                destino *
-                palabras_por_nodo;
-
-            int cantidad;
-
-            if(destino == size - 1)
-            {
-                cantidad =
-                    total_palabras -
-                    inicio;
-            }
-            else
-            {
-                cantidad =
-                    palabras_por_nodo;
-            }
-
-            unsigned long long plain_len = (unsigned long long)cantidad * MAX_WORD;
             unsigned char nonce[CHACHA_NONCEBYTES];
-            unsigned char *ciphertext = malloc(plain_len + crypto_aead_xchacha20poly1305_ietf_ABYTES);
+            unsigned char *ciphertext = malloc(image_len + crypto_aead_xchacha20poly1305_ietf_ABYTES);
             unsigned long long cipher_len = 0;
 
-            if(ciphertext == NULL)
+            if (!ciphertext)
             {
-                printf("Error de memoria\n");
-                MPI_Finalize();
-                return 1;
+                fprintf(stderr, "Error de memoria al cifrar imagen\n");
+                free(image_data);
+                MPI_Abort(MPI_COMM_WORLD, 1);
             }
 
-            if(chacha_encrypt(key,
-                              (const unsigned char *)(palabras + inicio),
-                              plain_len,
+            if (chacha_encrypt(key,
+                              image_data,
+                              image_len,
                               nonce,
                               ciphertext,
                               &cipher_len) != 0)
             {
-                printf("Error cifrando palabras\n");
+                fprintf(stderr, "Error cifrando %s\n", image_path);
+                free(image_data);
                 free(ciphertext);
-                MPI_Finalize();
-                return 1;
+                MPI_Abort(MPI_COMM_WORLD, 1);
             }
 
-            MPI_Send(
-                &cantidad,
-                1,
-                MPI_INT,
-                destino,
-                0,
-                MPI_COMM_WORLD);
+            int path_len = (int)strlen(image_path) + 1;
+            MPI_Send(&path_len, 1, MPI_INT, destino, 0, MPI_COMM_WORLD);
+            MPI_Send(image_path, path_len, MPI_CHAR, destino, 0, MPI_COMM_WORLD);
+            MPI_Send(&cipher_len, 1, MPI_UNSIGNED_LONG_LONG, destino, 0, MPI_COMM_WORLD);
+            MPI_Send(nonce, CHACHA_NONCEBYTES, MPI_UNSIGNED_CHAR, destino, 0, MPI_COMM_WORLD);
+            MPI_Send(ciphertext, cipher_len, MPI_UNSIGNED_CHAR, destino, 0, MPI_COMM_WORLD);
 
-            MPI_Send(
-                &cipher_len,
-                1,
-                MPI_UNSIGNED_LONG_LONG,
-                destino,
-                0,
-                MPI_COMM_WORLD);
+            printf("Rank 0 envio imagen cifrada %s a rank %d\n",
+                   image_path,
+                   destino);
 
-            MPI_Send(
-                nonce,
-                CHACHA_NONCEBYTES,
-                MPI_UNSIGNED_CHAR,
-                destino,
-                0,
-                MPI_COMM_WORLD);
-
-            MPI_Send(
-                ciphertext,
-                cipher_len,
-                MPI_UNSIGNED_CHAR,
-                destino,
-                0,
-                MPI_COMM_WORLD);
-
-            printf(
-                "Maestro envio %d palabras cifradas a rank %d\n",
-                cantidad,
-                destino);
-
+            free(image_data);
             free(ciphertext);
         }
 
-        int mi_cantidad =
-            palabras_por_nodo;
+        int total_objects = 0;
 
-        WordCount tabla_local[MAX_WORDS];
-
-        int unicas_local =
-            contar_palabras(
-                palabras,
-                mi_cantidad,
-                tabla_local);
-
-        fusionar_tablas(
-            tabla_global,
-            &global_count,
-            tabla_local,
-            unicas_local);
-
-        for(int origen = 1;
-            origen < size;
-            origen++)
+        for (int origen = 1; origen <= IMAGE_WORKERS; origen++)
         {
-            unsigned long long cipher_len2 = 0;
-            MPI_Recv(
-                &cipher_len2,
-                1,
-                MPI_UNSIGNED_LONG_LONG,
-                origen,
-                0,
-                MPI_COMM_WORLD,
-                MPI_STATUS_IGNORE);
+            int detected = 0;
+            MPI_Recv(&detected,
+                     1,
+                     MPI_INT,
+                     origen,
+                     0,
+                     MPI_COMM_WORLD,
+                     MPI_STATUS_IGNORE);
 
-            unsigned char nonce2[CHACHA_NONCEBYTES];
-            MPI_Recv(
-                nonce2,
-                CHACHA_NONCEBYTES,
-                MPI_UNSIGNED_CHAR,
-                origen,
-                0,
-                MPI_COMM_WORLD,
-                MPI_STATUS_IGNORE);
-
-            unsigned char *ciphertext2 = malloc(cipher_len2);
-            if(ciphertext2 == NULL)
-            {
-                printf("Error de memoria al recibir tabla de rank %d\n", origen);
-                MPI_Finalize();
-                return 1;
-            }
-
-            MPI_Recv(
-                ciphertext2,
-                cipher_len2,
-                MPI_UNSIGNED_CHAR,
-                origen,
-                0,
-                MPI_COMM_WORLD,
-                MPI_STATUS_IGNORE);
-
-            WordCount tabla_worker[MAX_WORDS];
-            unsigned long long decrypted_len2 = 0;
-
-            if(chacha_decrypt(key,
-                              ciphertext2,
-                              cipher_len2,
-                              nonce2,
-                              (unsigned char *)tabla_worker,
-                              &decrypted_len2) != 0)
-            {
-                printf("Error descifrando tabla del rank %d\n", origen);
-                free(ciphertext2);
-                MPI_Finalize();
-                return 1;
-            }
-
-            free(ciphertext2);
-
-            int unicas = (int)(decrypted_len2 / sizeof(WordCount));
-
-            printf(
-                "Recibida tabla cifrada desde rank %d (%d palabras unicas)\n",
-                origen,
-                unicas);
-
-            fusionar_tablas(
-                tabla_global,
-                &global_count,
-                tabla_worker,
-                unicas);
+            printf("Rank %d detecto %d objetos\n", origen, detected);
+            total_objects += detected;
         }
 
-        WordCount ganador =
-            buscar_maximo(
-                tabla_global,
-                global_count);
-
-        printf("\n");
-        printf("=================================\n");
-        printf("RESULTADO GLOBAL\n");
-        printf("=================================\n");
-
-        for(int i = 0;
-            i < global_count;
-            i++)
-        {
-            printf(
-                "%s = %d\n",
-                tabla_global[i].word,
-                tabla_global[i].count);
-        }
-
-        printf("\n");
-        printf("PALABRA GANADORA\n");
-        printf("%s (%d)\n",
-               ganador.word,
-               ganador.count);
-
-        printf("=================================\n");
+        printf("Total de objetos detectados: %d\n", total_objects);
     }
     else
     {
-        unsigned char key[CHACHA_KEYBYTES];
-        MPI_Bcast(key, CHACHA_KEYBYTES, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+        int path_len = 0;
+        MPI_Recv(&path_len,
+                 1,
+                 MPI_INT,
+                 0,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
 
-        int cantidad;
+        if (path_len <= 0 || path_len > MAX_IMAGE_PATH)
+        {
+            fprintf(stderr, "Nombre de imagen invalido en rank %d\n", rank);
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
 
-        MPI_Recv(
-            &cantidad,
-            1,
-            MPI_INT,
-            0,
-            0,
-            MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
+        char image_path[MAX_IMAGE_PATH];
+        MPI_Recv(image_path,
+                 path_len,
+                 MPI_CHAR,
+                 0,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
 
         unsigned long long cipher_len = 0;
-        MPI_Recv(
-            &cipher_len,
-            1,
-            MPI_UNSIGNED_LONG_LONG,
-            0,
-            0,
-            MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
+        MPI_Recv(&cipher_len,
+                 1,
+                 MPI_UNSIGNED_LONG_LONG,
+                 0,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
 
         unsigned char nonce[CHACHA_NONCEBYTES];
-        MPI_Recv(
-            nonce,
-            CHACHA_NONCEBYTES,
-            MPI_UNSIGNED_CHAR,
-            0,
-            0,
-            MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
+        MPI_Recv(nonce,
+                 CHACHA_NONCEBYTES,
+                 MPI_UNSIGNED_CHAR,
+                 0,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
 
         unsigned char *ciphertext = malloc(cipher_len);
-        if(ciphertext == NULL)
+        if (!ciphertext)
         {
-            printf("Error de memoria\n");
-            MPI_Finalize();
-            return 1;
+            fprintf(stderr, "Error de memoria en rank %d\n", rank);
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
-        MPI_Recv(
-            ciphertext,
-            cipher_len,
-            MPI_UNSIGNED_CHAR,
-            0,
-            0,
-            MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
+        MPI_Recv(ciphertext,
+                 cipher_len,
+                 MPI_UNSIGNED_CHAR,
+                 0,
+                 0,
+                 MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
 
-        char (*palabras_locales)[MAX_WORD] = malloc(cantidad * MAX_WORD);
-        if(palabras_locales == NULL)
+        unsigned char *plaintext = malloc(cipher_len);
+        if (!plaintext)
         {
-            printf("Error de memoria\n");
+            fprintf(stderr, "Error de memoria en rank %d\n", rank);
             free(ciphertext);
-            MPI_Finalize();
-            return 1;
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
-        unsigned long long decrypted_len = 0;
-        if(chacha_decrypt(key,
-                         ciphertext,
-                         cipher_len,
-                         nonce,
-                         (unsigned char *)palabras_locales,
-                         &decrypted_len) != 0)
+        unsigned long long plain_len = 0;
+        if (chacha_decrypt(key,
+                           ciphertext,
+                           cipher_len,
+                           nonce,
+                           plaintext,
+                           &plain_len) != 0)
         {
-            printf("Error descifrando palabras en rank %d\n", rank);
+            fprintf(stderr, "Error descifrando datos en rank %d\n", rank);
             free(ciphertext);
-            free(palabras_locales);
-            MPI_Finalize();
-            return 1;
+            free(plaintext);
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+
+        char tmp_path[MAX_IMAGE_PATH];
+        if (write_temp_image(rank,
+                             image_path,
+                             plaintext,
+                             plain_len,
+                             tmp_path,
+                             sizeof(tmp_path)) != 0)
+        {
+            fprintf(stderr, "No se pudo escribir imagen temporal en rank %d\n", rank);
+            free(ciphertext);
+            free(plaintext);
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
         free(ciphertext);
+        free(plaintext);
 
-        WordCount tabla_local[MAX_WORDS];
-
-        int unicas =
-            contar_palabras(
-                palabras_locales,
-                cantidad,
-                tabla_local);
-
-        printf(
-            "Rank %d proceso %d palabras (%d unicas)\n",
-            rank,
-            cantidad,
-            unicas);
-
-        unsigned long long plaintext_len = unicas * sizeof(WordCount);
-        unsigned char nonce2[CHACHA_NONCEBYTES];
-        unsigned long long cipher_len2 = 0;
-        unsigned char *ciphertext2 = malloc(plaintext_len + crypto_aead_xchacha20poly1305_ietf_ABYTES);
-        if(ciphertext2 == NULL)
+        int detected = detectar_imagen(tmp_path);
+        if (detected < 0)
         {
-            printf("Error de memoria\n");
-            free(palabras_locales);
-            MPI_Finalize();
-            return 1;
+            detected = 0;
         }
+        remove(tmp_path);
 
-        if(chacha_encrypt(key,
-                          (const unsigned char *)tabla_local,
-                          plaintext_len,
-                          nonce2,
-                          ciphertext2,
-                          &cipher_len2) != 0)
-        {
-            printf("Error cifrando tabla local en rank %d\n", rank);
-            free(ciphertext2);
-            free(palabras_locales);
-            MPI_Finalize();
-            return 1;
-        }
-
-        MPI_Send(
-            &cipher_len2,
-            1,
-            MPI_UNSIGNED_LONG_LONG,
-            0,
-            0,
-            MPI_COMM_WORLD);
-
-        MPI_Send(
-            nonce2,
-            CHACHA_NONCEBYTES,
-            MPI_UNSIGNED_CHAR,
-            0,
-            0,
-            MPI_COMM_WORLD);
-
-        MPI_Send(
-            ciphertext2,
-            cipher_len2,
-            MPI_UNSIGNED_CHAR,
-            0,
-            0,
-            MPI_COMM_WORLD);
-
-        free(ciphertext2);
-        free(palabras_locales);
+        MPI_Send(&detected,
+                 1,
+                 MPI_INT,
+                 0,
+                 0,
+                 MPI_COMM_WORLD);
     }
 
     MPI_Finalize();
-
     return 0;
 }
 
