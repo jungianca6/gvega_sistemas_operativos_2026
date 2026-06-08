@@ -24,7 +24,7 @@ run:
 	mpirun -np 4 ./$(TARGET) $(IMG1) $(IMG2) $(IMG3)
 
 run-all:
-	@bash -lc 'mpirun_cmd=$$(which mpirun 2>/dev/null || true); if [ -z "$$mpirun_cmd" ]; then echo "mpirun no se encuentra en PATH."; exit 1; fi; prefix=$$(dirname "$$(dirname "$$(readlink -f "$$mpirun_cmd")")"); imgs=(../images/*.jpg); n=$${#imgs[@]}; if [ $$n -lt 3 ]; then echo "Necesitas al menos 3 imágenes en ../images"; exit 1; fi; for ((i=0; i<n; i+=3)); do batch=( "$${imgs[@]:i:3}" ); if [ "$${#batch[@]}" -lt 3 ]; then echo "Lote incompleto con $${#batch[@]} imágenes omitido."; break; fi; echo "=== Lote $$((i/3+1)): $${batch[*]} ==="; env LD_LIBRARY_PATH="$$prefix/lib:$$prefix/lib64:$${LD_LIBRARY_PATH}" "$$mpirun_cmd" --prefix "$$prefix" -np 4 ./$(TARGET) "$${batch[@]}"; done'
+	@bash -lc 'mpi_cmd=$$(which mpirun 2>/dev/null || which mpiexec 2>/dev/null || true); if [ -z "$$mpi_cmd" ]; then echo "mpirun/mpiexec no se encuentra en PATH."; exit 1; fi; mpi_ld_dirs=$$(mpicc -show 2>/dev/null | tr " " "\n" | grep "^-L" | sed "s/^-L//" | tr "\n" ":" | sed "s/:$$//"); if [ -z "$$mpi_ld_dirs" ]; then mpi_ld_dirs=$$(mpicc --showme:link 2>/dev/null | tr " " "\n" | grep "^-L" | sed "s/^-L//" | tr "\n" ":" | sed "s/:$$//" || true); fi; if [ -n "$$mpi_ld_dirs" ]; then export LD_LIBRARY_PATH="$$mpi_ld_dirs:$${LD_LIBRARY_PATH}"; fi; imgs=(../images/*.jpg); n=$${#imgs[@]}; if [ $$n -lt 3 ]; then echo "Necesitas al menos 3 imágenes en ../images"; exit 1; fi; for ((i=0; i<n; i+=3)); do batch=( "$${imgs[@]:i:3}" ); if [ "$${#batch[@]}" -lt 3 ]; then echo "Lote incompleto con $${#batch[@]} imágenes omitido."; break; fi; echo "=== Lote $$((i/3+1)): $${batch[*]} ==="; "$$mpi_cmd" -np 4 ./$(TARGET) "$${batch[@]}"; done'
 
 libchacha: $(LIBCHACHA)
 
