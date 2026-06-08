@@ -13,6 +13,8 @@ CHACHA_DIR=chacha_lib
 LIBCHACHA=$(CHACHA_DIR)/libchacha.a
 CHACHATEST_SRC=$(CHACHA_DIR)/chacha_lib_test_mpi.c
 CHACHATEST_BIN=chacha_lib_test
+CHACHA_SERVER_SRC=chacha_server_text.c
+CHACHA_SERVER_BIN=chacha_server_text
 
 all: libchacha $(TARGET)
 
@@ -27,6 +29,12 @@ chacha_test: $(CHACHA_SRC)
 
 run_chacha:
 	mpirun -np 2 ./$(CHACHA_TARGET)
+
+$(CHACHA_SERVER_BIN): $(CHACHA_SERVER_SRC) libchacha
+	$(CC) $(CFLAGS) $(CHACHA_SERVER_SRC) -L$(CHACHA_DIR) -lchacha -lsodium -o $(CHACHA_SERVER_BIN)
+
+run_chacha_server: $(CHACHA_SERVER_BIN)
+	mpirun -np 2 ./$(CHACHA_SERVER_BIN)
 
 libchacha: $(LIBCHACHA)
 
