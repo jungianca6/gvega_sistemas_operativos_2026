@@ -9,7 +9,7 @@
 #define CFG_FILE     "../darknet/cfg/yolov3.cfg"
 #define WEIGHTS_FILE "../darknet/yolov3.weights"
 #define NAMES_FILE   "../darknet/data/coco.names"
-#define OUTPUT_DIR   "result"
+#define OUTPUT_DIR   "../result"
 
 static int path_exists(const char *path)
 {

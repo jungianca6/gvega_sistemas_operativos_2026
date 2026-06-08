@@ -10,9 +10,10 @@ TARGET=Servidor
 SRC=FirstServer.c detector.c
 LIBCHACHA=$(CHACHA_DIR)/libchacha.a
 
-IMG1=../darknet/data/dog.jpg
-IMG2=../darknet/data/person.jpg
-IMG3=../darknet/data/horses.jpg
+IMG1=../images/dog.jpg
+IMG2=../images/person.jpg
+IMG3=../images/horses.jpg
+IMAGES_DIR=../images
 
 all: libchacha darknet_lib $(TARGET)
 
@@ -21,6 +22,9 @@ $(TARGET): $(SRC) libchacha
 
 run:
 	mpirun -np 4 ./$(TARGET) $(IMG1) $(IMG2) $(IMG3)
+
+run-all:
+	@bash -lc 'imgs=(../images/*.jpg); n=$${#imgs[@]}; if [ $$n -lt 3 ]; then echo "Necesitas al menos 3 imágenes en ../images"; exit 1; fi; for ((i=0; i<n; i+=3)); do batch=( "$${imgs[@]:i:3}" ); if [ "$${#batch[@]}" -lt 3 ]; then echo "Lote incompleto con $${#batch[@]} imágenes omitido."; break; fi; echo "=== Lote $$((i/3+1)): $${batch[*]} ==="; mpirun -np 4 ./$(TARGET) "$${batch[@]}"; done'
 
 libchacha: $(LIBCHACHA)
 
