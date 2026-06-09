@@ -86,19 +86,51 @@ int wolfPlotter_blink(unsigned int pin, unsigned int count, unsigned int delay_m
     return 0;
 }
 
-/* ---- Pen-plotter stubs ---- */
+/* ---- Stepper motor control ---- */
+
+int wolfPlotter_move(char axis, int steps, unsigned int delay_us)
+{
+    char cmd[PENPLTTR_CMD_BUF_SIZE];
+
+    if (proc_file == NULL)
+    {
+        fprintf(stderr, "wolfPlotter: not initialized, call wolfPlotter_init() first\n");
+        return -1;
+    }
+
+    if (axis != 'x' && axis != 'X' && axis != 'y' && axis != 'Y')
+    {
+        fprintf(stderr, "wolfPlotter: invalid axis '%c' (must be 'x' or 'y')\n", axis);
+        return -1;
+    }
+
+    if (steps == 0)
+        return 0;
+
+    snprintf(cmd, sizeof(cmd), "move,%c,%d,%u\n", axis, steps, delay_us);
+
+    if (fputs(cmd, proc_file) == EOF)
+    {
+        perror("wolfPlotter: failed to write move command");
+        return -1;
+    }
+    fflush(proc_file);
+
+    printf("wolfPlotter: move(%c, %d steps, %u us delay)\n", axis, steps, delay_us);
+    return 0;
+}
 
 int wolfPlotter_moveX(int steps)
 {
-    printf("wolfPlotter: moveX(%d) — stub, not yet implemented\n", steps);
-    return 0;
+    return wolfPlotter_move('x', steps, 1000);
 }
 
 int wolfPlotter_moveY(int steps)
 {
-    printf("wolfPlotter: moveY(%d) — stub, not yet implemented\n", steps);
-    return 0;
+    return wolfPlotter_move('y', steps, 1000);
 }
+
+/* ---- Pen servo (not yet implemented) ---- */
 
 int wolfPlotter_pencilDown(void)
 {

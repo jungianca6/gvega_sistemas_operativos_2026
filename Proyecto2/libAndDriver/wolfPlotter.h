@@ -40,20 +40,33 @@ int wolfPlotter_setPin(unsigned int pin, unsigned int value);
  */
 int wolfPlotter_blink(unsigned int pin, unsigned int count, unsigned int delay_ms);
 
-/* ---- Pen-plotter motor functions (stubs for future implementation) ---- */
+/* ---- Stepper motor control ---- */
 
 /**
- * Move the X-axis motor by the given number of steps.
+ * Move a stepper motor by the given number of steps.
+ * This is the low-level function used by wolfPlotter_moveX/moveY.
  *
- * @param steps Positive = right, negative = left.
+ * @param axis     'x' or 'y' to select which motor.
+ * @param steps    Number of steps (negative = reverse direction).
+ * @param delay_us Microseconds between each step (1000 = 1ms).
+ * @return 0 on success, -1 on failure.
+ */
+int wolfPlotter_move(char axis, int steps, unsigned int delay_us);
+
+/**
+ * Move the X-axis stepper motor by the given number of steps.
+ * Uses 1ms step delay (matching stepper.py default).
+ *
+ * @param steps Positive = counter-clockwise, negative = clockwise.
  * @return 0 on success, -1 on failure.
  */
 int wolfPlotter_moveX(int steps);
 
 /**
- * Move the Y-axis motor by the given number of steps.
+ * Move the Y-axis stepper motor by the given number of steps.
+ * Uses 1ms step delay (matching stepper.py default).
  *
- * @param steps Positive = forward, negative = backward.
+ * @param steps Positive = counter-clockwise, negative = clockwise.
  * @return 0 on success, -1 on failure.
  */
 int wolfPlotter_moveY(int steps);
