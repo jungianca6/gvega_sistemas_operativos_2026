@@ -160,6 +160,18 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    char hostname[256];
+
+    gethostname(hostname, sizeof(hostname));
+
+    printf(
+        "[CLIENTE] Rank %d ejecutandose en %s\n",
+        rank,
+        hostname);
+
+    fflush(stdout);
+
+
     /* Solo el cliente (rank 0) ejecuta este código */
     if (rank != CLIENT_RANK)
     {
@@ -284,7 +296,10 @@ int main(int argc, char *argv[])
                  6,
                  MPI_COMM_WORLD);
 
-        printf("Cliente: imagen enviada %s al servidor\n", image_path);
+        printf(
+            "[CLIENTE] Rank %d envio %s al servidor\n",
+            rank,
+            image_path);
         fflush(stdout);
 
         free(image_data);

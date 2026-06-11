@@ -134,6 +134,18 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    char hostname[256];
+
+    gethostname(hostname, sizeof(hostname));
+
+    printf(
+        "[MPI] Rank %d ejecutandose en %s\n",
+        rank,
+        hostname);
+
+    fflush(stdout);
+
+
     /* Validar que tenemos exactamente 5 procesos (1 cliente + 1 servidor + 3 workers) */
     if (size != EXPECTED_SIZE)
     {
@@ -301,12 +313,20 @@ int main(int argc, char *argv[])
                 MPI_Abort(MPI_COMM_WORLD, 1);
             }
 
-            printf("Servidor: imagen descifrada %s (tamaño: %llu bytes)\n",
-                   image_path,
-                   plain_len);
+            printf(
+                "[COORDINADOR] Rank %d recibio %s (%llu bytes)\n",
+                rank,
+                image_path,
+                plain_len);
             fflush(stdout);
 
             int worker_rank = WORKER_RANK_START + (index % IMAGE_WORKERS);
+            printf(
+                "[COORDINADOR] Enviando %s a worker rank %d\n",
+                image_path,
+                worker_rank);
+
+            fflush(stdout);
             MPI_Send(&path_len,
                      1,
                      MPI_INT,
@@ -361,6 +381,8 @@ int main(int argc, char *argv[])
             int detected = 0;
             int class_counts[NUM_CLASSES] = {0};
 
+
+
             MPI_Recv(&detected,
                      1,
                      MPI_INT,
@@ -368,6 +390,11 @@ int main(int argc, char *argv[])
                      10,
                      MPI_COMM_WORLD,
                      MPI_STATUS_IGNORE);
+            
+            printf(
+                "[COORDINADOR] Resultado recibido: %d objetos\n",
+                detected);
+            fflush(stdout);
             MPI_Recv(class_counts,
                      NUM_CLASSES,
                      MPI_INT,
@@ -405,6 +432,19 @@ int main(int argc, char *argv[])
         }
 
         int best_name_len = (int)strlen(best_name);
+        printf("\n");
+        printf("=====================================\n");
+        printf("OBJETO MAS FRECUENTE GLOBAL\n");
+        printf("%s -> %d veces\n",
+               best_name,
+               best_count);
+        printf("TOTAL OBJETOS -> %d\n",
+               total_objects);
+        printf("=====================================\n");
+        printf("\n");
+
+        fflush(stdout);
+
         MPI_Send(&best_count,
                  1,
                  MPI_INT,
@@ -540,7 +580,7 @@ int main(int argc, char *argv[])
                 MPI_Abort(MPI_COMM_WORLD, 1);
             }
 
-            printf("Worker %d: imagen recibida %s -> %s\n",
+            printf("[WORKER %d]: imagen recibida %s -> %s\n",
                    rank,
                    image_path,
                    tmp_path);
@@ -548,11 +588,18 @@ int main(int argc, char *argv[])
 
             int class_counts[NUM_CLASSES] = {0};
             int detected = detectar_imagen(rank, tmp_path, class_counts);
+            printf(
+                "[WORKER %d] Detecto %d objetos\n",
+                rank,
+                detected);
+
+            fflush(stdout);
             if (detected < 0)
             {
                 detected = 0;
             }
             remove(tmp_path);
+
 
             MPI_Send(&detected,
                      1,
