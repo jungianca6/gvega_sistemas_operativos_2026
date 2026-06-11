@@ -20,6 +20,8 @@
 #include <sodium.h>
 #include "chacha.h"
 #include "detector.h"
+#include <arpa/inet.h>
+#include <netdb.h>
 
 /* MPI Configuration */
 #define IMAGE_WORKERS 3                        /* Número de workers para procesamiento */
@@ -135,13 +137,24 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     char hostname[256];
+    gethostname(hostname,sizeof(hostname));
 
-    gethostname(hostname, sizeof(hostname));
+    struct hostent *h = gethostbyname(hostname);
 
-    printf(
-        "[MPI] Rank %d ejecutandose en %s\n",
-        rank,
-        hostname);
+    if (h && h->h_addr_list[0])
+    {
+        char ip[INET_ADDRSTRLEN];
+
+        inet_ntop(AF_INET,
+                  h->h_addr_list[0],
+                  ip,
+                  sizeof(ip));
+
+        printf("[MPI] Rank %d host=%s ip=%s\n",
+               rank,
+               hostname,
+               ip);
+    }
 
     fflush(stdout);
 
@@ -390,7 +403,7 @@ int main(int argc, char *argv[])
                      10,
                      MPI_COMM_WORLD,
                      MPI_STATUS_IGNORE);
-            
+
             printf(
                 "[COORDINADOR] Resultado recibido: %d objetos\n",
                 detected);
