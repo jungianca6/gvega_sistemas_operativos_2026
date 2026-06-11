@@ -36,11 +36,11 @@ run-server-client:
 
 run-distributed:
 	mpirun \
-	-host $(MASTER) -np 1 ./cliente \
+	-host $(MASTER):2 -np 1 ./cliente \
 	: \
-	-host $(MASTER) -np 1 ./servidor \
+	-host $(MASTER):2 -np 1 ./servidor \
 	: \
-	-host $(WORKER1) -np 1 ./servidor 
+	-host $(WORKER1):3 -np 3 ./servidor
 run-all:
 	@bash run_all_batches.sh
 
