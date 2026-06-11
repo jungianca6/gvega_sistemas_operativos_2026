@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
     char hostname[256];
     gethostname(hostname,sizeof(hostname));
 
-    struct hostent *h = gethostbyname(hostname);
+    struct hostent *h = system("hostname -I");
 
     if (h && h->h_addr_list[0])
     {
