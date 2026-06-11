@@ -17,6 +17,9 @@ IMG2=../images/person.jpg
 IMG3=../images/horses.jpg
 IMAGES_DIR=../images
 
+MASTER=172.18.102.144
+WORKER1=172.18.17.76
+
 all: libchacha darknet_lib $(TARGET) $(CLIENT)
 
 $(TARGET): $(SRC) libchacha
@@ -31,6 +34,13 @@ run:
 run-server-client:
 	mpirun -np 1 ./$(SERVER) $(IMG1) : -np 1 ./$(CLIENT)
 
+run-distributed:
+	mpirun \
+	-host $(MASTER) -np 1 ./cliente \
+	: \
+	-host $(MASTER) -np 1 ./servidor \
+	: \
+	-host $(WORKER1) -np 1 ./servidor 
 run-all:
 	@bash run_all_batches.sh
 
