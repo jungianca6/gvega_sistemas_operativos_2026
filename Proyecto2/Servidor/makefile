@@ -19,6 +19,7 @@ IMAGES_DIR=../images
 
 MASTER=172.18.102.144
 WORKER1=172.18.17.76
+WORKER2=172.18.189.69
 
 all: libchacha darknet_lib $(TARGET) $(CLIENT)
 
@@ -41,6 +42,8 @@ run-distributed:
 	-host $(MASTER):2 -np 1 ./servidor \
 	: \
 	-host $(WORKER1):3 -np 3 ./servidor
+	: \
+    -host $(WORKER2):1 -np 1 ./servidor
 run-all:
 	@bash run_all_batches.sh
 
