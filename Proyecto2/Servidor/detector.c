@@ -2,7 +2,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-
+#include <unistd.h>
 #include "../darknet/include/darknet.h"
 #include "detector.h"
 
@@ -94,8 +94,21 @@ static void free_alphabet(image **alphabet)
 #define HIER_THRESH  0.5f
 #define NMS_THRESH   0.45f
 
+
+
+
 int detectar_imagen(int rank, const char *ruta_imagen, int class_counts[NUM_CLASSES])
 {
+    char cwd[1024];
+    getcwd(cwd, sizeof(cwd));
+
+    printf("Rank %d cwd = %s\n", rank, cwd);
+    printf("Rank %d CFG = %s\n", rank, CFG_FILE);
+    printf("Rank %d WEIGHTS = %s\n", rank, WEIGHTS_FILE);
+    printf("Rank %d NAMES = %s\n", rank, NAMES_FILE);
+
+    fflush(stdout);
+    
     printf("Rank %d: Procesando imagen: %s\n", rank, ruta_imagen);
     printf("Rank %d: CFG: %s\n", rank, CFG_FILE);
     printf("Rank %d: WEIGHTS: %s\n", rank, WEIGHTS_FILE);
