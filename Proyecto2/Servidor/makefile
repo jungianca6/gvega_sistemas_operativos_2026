@@ -1,18 +1,69 @@
 CC=mpicc
 
-CFLAGS=-Wall -Wextra -O2 -fopenmp
+CHACHA_DIR=chacha_lib
+DARKNET_DIR=../darknet
 
-TARGET=Servidor
-TEXTO=texto.txt
-SRC=FirstServer.c word_counter.c
+CFLAGS=-Wall -Wextra -O2 -I$(CHACHA_DIR) -I$(DARKNET_DIR)/include
+LDFLAGS=-L$(CHACHA_DIR) -lchacha -lsodium $(DARKNET_DIR)/libdarknet.a -lm -pthread
 
-all:
-	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
+TARGET=servidor
+SERVER=servidor
+CLIENT=cliente
+SRC=servidor.c detector.c
+LIBCHACHA=$(CHACHA_DIR)/libchacha.a
+
+IMG1=../images/dog.jpg
+IMG2=../images/person.jpg
+IMG3=../images/horses.jpg
+IMAGES_DIR=../images
+
+MASTER=172.18.102.144
+WORKER1=172.18.17.76
+WORKER2=172.18.189.69
+
+all: libchacha darknet_lib $(TARGET) $(CLIENT)
+
+$(TARGET): $(SRC) libchacha
+	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
+
+$(CLIENT): cliente.c detector.c libchacha
+	$(CC) $(CFLAGS) cliente.c detector.c -o $(CLIENT) $(LDFLAGS)
 
 run:
-	mpirun -np 4 ./$(TARGET) $(TEXTO)
+	mpirun -np 4 ./$(TARGET) $(IMG1) $(IMG2) $(IMG3)
 
-debug:
-	$(CC) -g $(CFLAGS) $(SRC) -o $(TARGET)
+run_local:
+	mpirun -np 1 ./$(CLIENT) : -np 4 ./$(SERVER)
+
+run_local2:
+	mpirun --oversubscribe -np 1 ./$(CLIENT) : -np 4 ./$(SERVER)
+
+
+run-server-client:
+	mpirun -np 1 ./$(SERVER) $(IMG1) : -np 1 ./$(CLIENT)
+
+run-distributed:
+	mpirun \
+	-host $(MASTER):2 -np 1 ./cliente \
+	: \
+	-host $(MASTER):2 -np 1 ./servidor \
+	: \
+	-host $(WORKER1):3 -np 1 ./servidor \
+	: \
+    -host $(WORKER2):1 -np 1 ./servidor
+run-all:
+	@bash run_all_batches.sh
+
+libchacha: $(LIBCHACHA)
+
+$(CHACHA_DIR)/chacha.o: $(CHACHA_DIR)/chacha.c $(CHACHA_DIR)/chacha.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(LIBCHACHA): $(CHACHA_DIR)/chacha.o
+	ar rcs $@ $^
+
+darknet_lib:
+	$(MAKE) -C $(DARKNET_DIR) libdarknet.a
+
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(SERVER) $(CLIENT) $(CHACHA_DIR)/chacha.o $(LIBCHACHA)
