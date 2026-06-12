@@ -17,8 +17,8 @@ IMG2=../images/person.jpg
 IMG3=../images/horses.jpg
 IMAGES_DIR=../images
 
-MASTER=172.18.102.144
-WORKER1=172.18.17.76
+MASTER=192.168.0.100
+WORKER1=192.168.0.101
 WORKER2=172.18.189.69
 
 all: libchacha darknet_lib $(TARGET) $(CLIENT)
@@ -38,19 +38,17 @@ run_local:
 run_local2:
 	mpirun --oversubscribe -np 1 ./$(CLIENT) : -np 4 ./$(SERVER)
 
-
 run-server-client:
 	mpirun -np 1 ./$(SERVER) $(IMG1) : -np 1 ./$(CLIENT)
 
 run-distributed:
-	mpirun \
-	-host $(MASTER):2 -np 1 ./cliente \
+	mpirun --oversubscribe \
+	-host $(MASTER):1 -np 1 ./cliente \
 	: \
-	-host $(MASTER):2 -np 1 ./servidor \
+	-host $(MASTER):1 -np 1 ./servidor \
 	: \
-	-host $(WORKER1):3 -np 1 ./servidor \
-	: \
-    -host $(WORKER2):1 -np 1 ./servidor
+	-host $(WORKER1):3 -np 3 ./servidor 
+
 run-all:
 	@bash run_all_batches.sh
 
