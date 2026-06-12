@@ -414,7 +414,8 @@ static void drawLetter(char letter)
         doMoveX(XMOV);             /* g   : middle bar right       */
         doMoveX(-XMOV);            /* retrace g back to ML         */
         doMoveY(YMOV / 2);         /* retrace e down to BL         */
-        doMoveX(XMOV);             /* (d) : to reach BR            */
+        doMoveX(XMOV);
+                 
         break;
 
     /* ----  S  (a,c,d,f,g)  ----
@@ -521,8 +522,139 @@ static void drawLetter(char letter)
         doMoveX(XMOV);             /* d   : bottom bar right       */
         break;
 
+    /* ---- Digits ---- */
+
+    /* ----  0  (a,b,c,d,e,f) — same as O  ----
+     *  _
+     * | |
+     * |_|                         */
+    case '0':
+        doMoveY(-YMOV);            /* e+f : left side up           */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveY(YMOV);             /* b+c : right side down        */
+        doMoveX(-XMOV);            /* d   : bottom bar left        */
+        doMoveX(XMOV);             /* d   : retrace bottom right   */
+        break;
+
+    /* ----  1  (b,c)  ----
+     *   |
+     *   |                         */
+    case '1':
+        doMoveX(XMOV);             /* move to BR                   */
+        doMoveY(-YMOV);            /* c+b reverse : right side up  */
+        doMoveY(YMOV);             /* retrace b+c down to BR       */
+        break;
+
+    /* ----  2  (a,b,d,e,g)  ----
+     *  _
+     *  _|
+     * |_                          */
+    case '2':
+        doMoveX(XMOV);             /* d   : bottom bar right       */
+        doMoveY(-YMOV / 2);        /* c reverse (drawn as b) up MR */
+        doMoveX(-XMOV);            /* g   : middle bar left        */
+        doMoveY(YMOV / 2);         /* e   : left-bottom down to BL */
+        doMoveY(-YMOV);            /* e+f : left side up (retrace) */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveY(YMOV);             /* b+c : right side down to BR  */
+        break;
+
+    /* ----  3  (a,b,c,d,g)  ----
+     *  _
+     *  _|
+     *  _|                         */
+    case '3':
+        doMoveX(XMOV);             /* d   : bottom bar right       */
+        doMoveY(-YMOV / 2);        /* c reverse : up to MR         */
+        doMoveX(-XMOV);            /* g   : middle bar left        */
+        doMoveX(XMOV);             /* g   : retrace middle right   */
+        doMoveY(-YMOV / 2);        /* b reverse : up to TR         */
+        doMoveX(-XMOV);            /* a   : top bar left           */
+        doMoveX(XMOV);             /* a   : retrace top right      */
+        doMoveY(YMOV);             /* b+c : right side down to BR  */
+        break;
+
+    /* ----  4  (b,c,f,g)  ----
+     * |_|
+     *   |                         */
+    case '4':
+        doMoveY(-YMOV);            /* e(extra)+f : left side up    */
+        doMoveY(YMOV / 2);         /* retrace f down to ML         */
+        doMoveX(XMOV);             /* g   : middle bar right       */
+        doMoveY(-YMOV / 2);        /* b reverse : up to TR         */
+        doMoveY(YMOV);             /* b+c : right side down to BR  */
+        break;
+
+    /* ----  5  (a,c,d,f,g) — same as S  ----
+     *  _
+     *  _|
+     * |_                          */
+    case '5':
+        doMoveX(XMOV);             /* d   : bottom bar right       */
+        doMoveY(-YMOV / 2);        /* c reverse : up to MR         */
+        doMoveX(-XMOV);            /* g   : middle bar left        */
+        doMoveY(-YMOV / 2);        /* f   : left-top up to TL      */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveY(YMOV);             /* (b)+c : right side down      */
+        break;
+
+    /* ----  6  (a,c,d,e,f,g)  ----
+     *  _
+     * |_
+     * |_|                         */
+    case '6':
+        doMoveY(-YMOV);            /* e+f : left side up           */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveX(-XMOV);            /* retrace a back to TL         */
+        doMoveY(YMOV / 2);         /* retrace f down to ML         */
+        doMoveX(XMOV);             /* g   : middle bar right       */
+        doMoveY(YMOV / 2);         /* c   : right-bottom down      */
+        doMoveX(-XMOV);            /* d   : bottom bar left        */
+        doMoveX(XMOV);             /* d   : retrace bottom right   */
+        break;
+
+    /* ----  7  (a,b,c)  ----
+     *  _
+     *   |
+     *   |                         */
+    case '7':
+        doMoveY(-YMOV);            /* e+f(extra) : left side up    */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveY(YMOV);             /* b+c : right side down to BR  */
+        break;
+
+    /* ----  8  (a,b,c,d,e,f,g) — all segments  ----
+     *  _
+     * |_|
+     * |_|                         */
+    case '8':
+        doMoveY(-YMOV);            /* e+f : left side up           */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveY(YMOV / 2);         /* b   : right-top down to MR   */
+        doMoveX(-XMOV);            /* g   : middle bar left        */
+        doMoveX(XMOV);             /* g   : retrace middle right   */
+        doMoveY(YMOV / 2);         /* c   : right-bottom down      */
+        doMoveX(-XMOV);            /* d   : bottom bar left        */
+        doMoveX(XMOV);             /* d   : retrace bottom right   */
+        break;
+
+    /* ----  9  (a,b,c,d,f,g)  ----
+     *  _
+     * |_|
+     *  _|                         */
+    case '9':
+        doMoveY(-YMOV);            /* e(extra)+f : left side up    */
+        doMoveX(XMOV);             /* a   : top bar right          */
+        doMoveY(YMOV / 2);         /* b   : right-top down to MR   */
+        doMoveX(-XMOV);            /* g   : middle bar left        */
+        doMoveX(XMOV);             /* g   : retrace middle right   */
+        doMoveY(YMOV / 2);         /* c   : right-bottom down      */
+        doMoveX(-XMOV);            /* d   : bottom bar left        */
+        doMoveX(XMOV);             /* d   : retrace bottom right   */
+        break;
+
     default:
-        printf("wolfPlotter: '%c' not found in the English alphabet\n",
+        printf("wolfPlotter: '%c' not supported (A-Z, 0-9)\n",
                letter);
         break;
     }
@@ -558,7 +690,7 @@ int wolfPlotter_writeWord(const char *word)
      * move to the writing baseline (bottom of letter cells).
      * This is NOT tracked in yLastMov (it is a one-time setup).
      */
-    wolfPlotter_moveY(-(2 * YMOV));
+    //wolfPlotter_moveY(-(2 * YMOV));
 
     for (i = 0; i < len; i++)
     {
@@ -583,6 +715,7 @@ int wolfPlotter_writeWord(const char *word)
         /* Advance carriage for spacing (except after last letter) */
         if (i < len - 1)
         {
+    
             doMoveX(LETTER_SPACING);
         }
     }

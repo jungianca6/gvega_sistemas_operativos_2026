@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "wolfPlotter.h"
 
-#define WORD "CARS"
+#define WORD "123"
 
 int main(void)
 {
