@@ -85,4 +85,21 @@ int wolfPlotter_pencilDown(void);
  */
 int wolfPlotter_pencilUp(void);
 
+/* ---- Word writing ---- */
+
+/**
+ * Write a word by drawing each uppercase letter with the pen plotter.
+ *
+ * Each letter occupies a cell of XMOV (512) × YMOV (512) steps.
+ * Maximum X-axis travel: 9216 steps; words exceeding this are truncated.
+ * After the last letter the carriage returns to the starting X position
+ * and the Y-axis is corrected to the writing baseline.
+ * Lowercase letters are treated as their uppercase equivalents.
+ * Non-alphabetic characters are skipped with a warning.
+ *
+ * @param word  Null-terminated string to write.
+ * @return 0 on success, -1 on failure.
+ */
+int wolfPlotter_writeWord(const char *word);
+
 #endif /* WOLF_PLOTTER_H */

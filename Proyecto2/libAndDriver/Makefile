@@ -33,7 +33,11 @@ lib: libwolfPlotter.a
 blink_test: blink_test.c libwolfPlotter.a
 	$(CC) $(CFLAGS) blink_test.c -L. -lwolfPlotter -o blink_test
 
-test: blink_test
+# ---- writeWord test binary ----
+wolfLibTest: wolfLibTest.c libwolfPlotter.a
+	$(CC) $(CFLAGS) wolfLibTest.c -L. -lwolfPlotter -o wolfLibTest
+
+test: blink_test wolfLibTest
 
 # ---- Load: insert our driver ----
 # Our driver uses gpio/consumer API — it works WITH pinctrl-bcm2835,
@@ -50,14 +54,17 @@ unload:
 	sudo rmmod penplttr-gpio-driver
 	@echo ">>> Driver removed. All GPIO pins released."
 
-# ---- Run a test ----
+# ---- Run tests ----
 run:
 	./blink_test
+
+run_word:
+	./wolfLibTest
 
 # ---- Clean everything ----
 clean:
 	make -C $(KDIR) M=$(PWD) clean
-	rm -f wolfPlotter.o libwolfPlotter.a blink_test
+	rm -f wolfPlotter.o libwolfPlotter.a blink_test wolfLibTest
 
 # ---- Verify: prove our driver is in control ----
 verify:
@@ -78,4 +85,5 @@ verify:
 	@echo ""
 	@echo "========================================"
 
-.PHONY: all driver lib test load unload clean verify
+.PHONY: all driver lib test load unload clean verify run run_word
+
