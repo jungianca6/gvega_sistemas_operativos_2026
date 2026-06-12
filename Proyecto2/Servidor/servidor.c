@@ -24,7 +24,7 @@
 #include <netdb.h>
 
 /* MPI Configuration */
-#define IMAGE_WORKERS 2                       /* Número de workers para procesamiento */
+#define IMAGE_WORKERS 3                       /* Número de workers para procesamiento */
 #define CLIENT_RANK 0                          /* Rank del cliente (procesa imágenes) */
 #define SERVER_ROOT_RANK 1                     /* Rank del servidor coordinador */
 #define WORKER_RANK_START 2                    /* Inicio de ranks de workers */
