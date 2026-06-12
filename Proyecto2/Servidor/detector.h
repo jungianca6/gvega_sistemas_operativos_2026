@@ -18,4 +18,8 @@ char **get_labels(char *filename);
  */
 int detectar_imagen(int rank, const char *ruta_imagen, int class_counts[NUM_CLASSES]);
 
+int init_detector(void);
+
+void cleanup_detector(void);
+
 #endif

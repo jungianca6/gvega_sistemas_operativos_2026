@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
                      MPI_COMM_WORLD);
         }
 
-        /* 3. Recibir n\u00famero total de im\u00e1genes a procesar */
+        /* 3. Recibir numero total de imagenes a procesar */
         int num_images = 0;
         MPI_Recv(&num_images,
                  1,
@@ -485,6 +485,10 @@ int main(int argc, char *argv[])
     }
     else if (rank >= WORKER_RANK_START && rank <= WORKER_RANK_END)
     {
+        if (init_detector() != 0)
+        {
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
         MPI_Recv(key,
                  CHACHA_KEYBYTES,
                  MPI_UNSIGNED_CHAR,
@@ -630,6 +634,7 @@ int main(int argc, char *argv[])
             free(ciphertext);
             free(plaintext);
         }
+        cleanup_detector();
     }
 
     MPI_Finalize();

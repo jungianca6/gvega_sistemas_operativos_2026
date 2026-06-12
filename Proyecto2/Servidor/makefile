@@ -32,6 +32,13 @@ $(CLIENT): cliente.c detector.c libchacha
 run:
 	mpirun -np 4 ./$(TARGET) $(IMG1) $(IMG2) $(IMG3)
 
+run_local:
+	mpirun -np 1 ./$(CLIENT) : -np 4 ./$(SERVER)
+
+run_local2:
+	mpirun --oversubscribe -np 1 ./$(CLIENT) : -np 4 ./$(SERVER)
+
+
 run-server-client:
 	mpirun -np 1 ./$(SERVER) $(IMG1) : -np 1 ./$(CLIENT)
 
@@ -41,7 +48,7 @@ run-distributed:
 	: \
 	-host $(MASTER):2 -np 1 ./servidor \
 	: \
-	-host $(WORKER1):3 -np 3 ./servidor
+	-host $(WORKER1):3 -np 1 ./servidor \
 	: \
     -host $(WORKER2):1 -np 1 ./servidor
 run-all:

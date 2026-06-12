@@ -88,12 +88,49 @@ static void free_alphabet(image **alphabet)
     free(alphabet);
 }
 
+network *global_net = NULL;
+int init_detector(void)
+{
+    if (global_net != NULL)
+    {
+        return 0;
+    }
+
+    global_net =
+        load_network(
+            CFG_FILE,
+            WEIGHTS_FILE,
+            0);
+
+    if (!global_net)
+    {
+        fprintf(stderr,
+                "Error cargando la red YOLO desde %s y %s\n",
+                CFG_FILE,
+                WEIGHTS_FILE);
+
+        return -1;
+    }
+
+    set_batch_network(global_net, 1);
+
+    return 0;
+}
+
+void cleanup_detector(void)
+{
+    if (global_net)
+    {
+        free_network(global_net);
+        global_net = NULL;
+    }
+}
+
 #define NUM_CLASSES  80
 
 #define THRESH       0.5f
 #define HIER_THRESH  0.5f
 #define NMS_THRESH   0.45f
-
 
 
 
@@ -134,26 +171,15 @@ int detectar_imagen(int rank, const char *ruta_imagen, int class_counts[NUM_CLAS
         return 0;
     }
 
-    /* Cargar red YOLO */
-    network *net =
-        load_network(
-            CFG_FILE,
-            WEIGHTS_FILE,
-            0);
-    if (!net)
+    if (init_detector() != 0)
     {
-        fprintf(stderr, "Error cargando la red YOLO desde %s y %s\n",
-                CFG_FILE,
-                WEIGHTS_FILE);
         return 0;
     }
 
-    set_batch_network(net, 1);
+    network *net = global_net;
 
     int net_w = network_width(net);
     int net_h = network_height(net);
-
-
 
     /* Cargar imagen */
     image im =
@@ -164,7 +190,6 @@ int detectar_imagen(int rank, const char *ruta_imagen, int class_counts[NUM_CLAS
     if (!im.data)
     {
         fprintf(stderr, "No se pudo cargar la imagen: %s\n", ruta_imagen);
-        free_network(net);
         return 0;
     }
 
@@ -266,8 +291,6 @@ int detectar_imagen(int rank, const char *ruta_imagen, int class_counts[NUM_CLAS
 
     free_image(im);
     free_image(resized);
-
-    free_network(net);
 
     return total_detectados;
 }
