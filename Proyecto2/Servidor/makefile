@@ -17,9 +17,8 @@ IMG2=../images/person.jpg
 IMG3=../images/horses.jpg
 IMAGES_DIR=../images
 
-MASTER=192.168.0.100
-WORKER1=192.168.0.101
-WORKER2=172.18.189.69
+MASTER=192.168.100.58
+WORKER1=192.168.100.20
 
 all: libchacha darknet_lib $(TARGET) $(CLIENT)
 
@@ -43,11 +42,11 @@ run-server-client:
 
 run-distributed:
 	mpirun --oversubscribe \
-	-host $(MASTER):1 -np 1 ./cliente \
+	-host $(WORKER1):1 -np 1 ./cliente \
 	: \
 	-host $(MASTER):1 -np 1 ./servidor \
 	: \
-	-host $(WORKER1):3 -np 3 ./servidor 
+	-host $(WORKER1):3 -np 3 ./servidor
 
 run-all:
 	@bash run_all_batches.sh
@@ -63,5 +62,13 @@ $(LIBCHACHA): $(CHACHA_DIR)/chacha.o
 darknet_lib:
 	$(MAKE) -C $(DARKNET_DIR) libdarknet.a
 
+sync:
+	rsync -avz --exclude '*.o' --exclude '*.a' \
+	--exclude 'servidor' --exclude 'cliente' \
+	--exclude 'mpi_hello' --exclude 'test_chacha_mpi' \
+	./ smz19@$(MASTER):~/Desktop/gvega_sistemas_operativos_2026/Proyecto2/Servidor/
+
 clean:
 	rm -f $(TARGET) $(SERVER) $(CLIENT) $(CHACHA_DIR)/chacha.o $(LIBCHACHA)
+	rm -rf ../result/*
+	rm -rf ../receive/*
