@@ -22,6 +22,7 @@
 #include "detector.h"
 #include <arpa/inet.h>
 #include <netdb.h>
+#include "wolfPlotter.h"
 
 /* MPI Configuration */
 #define IMAGE_WORKERS 3                       /* Número de workers para procesamiento */
@@ -457,6 +458,32 @@ int main(int argc, char *argv[])
         printf("\n");
 
         fflush(stdout);
+
+        /* ---- Pen Plotter: write the detection result ---- */
+        printf("[PLOTTER] Initializing wolfPlotter...\n");
+        if (wolfPlotter_init() != 0)
+        {
+            fprintf(stderr, "[PLOTTER] Failed to initialize wolfPlotter "
+                            "(is the driver loaded?)\n");
+            /* Non-fatal: continue to send results to client */
+        }
+        else
+        {
+            /* Build the string: "objectName" + count as digits */
+            char plotter_word[128];
+            snprintf(plotter_word, sizeof(plotter_word),
+                     "%s%d", best_name, best_count);
+
+            printf("[PLOTTER] Writing: \"%s\"\n", plotter_word);
+
+            if (wolfPlotter_writeWord(plotter_word) != 0)
+            {
+                fprintf(stderr, "[PLOTTER] writeWord failed\n");
+            }
+
+            wolfPlotter_cleanup();
+            printf("[PLOTTER] Done.\n");
+        }
 
         MPI_Send(&best_count,
                  1,

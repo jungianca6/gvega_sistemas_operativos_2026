@@ -2,9 +2,12 @@ CC=mpicc
 
 CHACHA_DIR=chacha_lib
 DARKNET_DIR=../darknet
+WOLFPLOTTER_DIR=../libAndDriver
+WOLFPLOTTER_LIB=$(WOLFPLOTTER_DIR)/libwolfPlotter.a
 
-CFLAGS=-Wall -Wextra -O2 -I$(CHACHA_DIR) -I$(DARKNET_DIR)/include
-LDFLAGS=-L$(CHACHA_DIR) -lchacha -lsodium $(DARKNET_DIR)/libdarknet.a -lm -pthread
+CFLAGS=-Wall -Wextra -O2 -I$(CHACHA_DIR) -I$(DARKNET_DIR)/include -I$(WOLFPLOTTER_DIR)
+LDFLAGS=-L$(CHACHA_DIR) -lchacha -lsodium $(DARKNET_DIR)/libdarknet.a \
+        $(WOLFPLOTTER_LIB) -lm -pthread
 
 TARGET=servidor
 SERVER=servidor
@@ -20,7 +23,7 @@ IMAGES_DIR=../images
 MASTER=192.168.100.58
 WORKER1=192.168.100.20
 
-all: libchacha darknet_lib $(TARGET) $(CLIENT)
+all: libchacha darknet_lib wolfplotter_lib $(TARGET) $(CLIENT)
 
 $(TARGET): $(SRC) libchacha
 	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
@@ -62,13 +65,31 @@ $(LIBCHACHA): $(CHACHA_DIR)/chacha.o
 darknet_lib:
 	$(MAKE) -C $(DARKNET_DIR) libdarknet.a
 
+wolfplotter_lib: $(WOLFPLOTTER_LIB)
+
+$(WOLFPLOTTER_LIB):
+	$(MAKE) -C $(WOLFPLOTTER_DIR) lib
+
 sync:
 	rsync -avz --exclude '*.o' --exclude '*.a' \
 	--exclude 'servidor' --exclude 'cliente' \
 	--exclude 'mpi_hello' --exclude 'test_chacha_mpi' \
 	./ smz19@$(MASTER):~/Desktop/gvega_sistemas_operativos_2026/Proyecto2/Servidor/
+	rsync -avz --exclude '*.o' --exclude '*.a' --exclude '*.ko' \
+	--exclude 'blink_test' --exclude 'wolfLibTest' \
+	$(WOLFPLOTTER_DIR)/ smz19@$(MASTER):~/Desktop/gvega_sistemas_operativos_2026/Proyecto2/libAndDriver/
+
+driver-load:
+	$(MAKE) -C $(WOLFPLOTTER_DIR) load
+
+driver-unload:
+	$(MAKE) -C $(WOLFPLOTTER_DIR) unload
+
+driver-verify:
+	$(MAKE) -C $(WOLFPLOTTER_DIR) verify
 
 clean:
 	rm -f $(TARGET) $(SERVER) $(CLIENT) $(CHACHA_DIR)/chacha.o $(LIBCHACHA)
 	rm -rf ../result/*
 	rm -rf ../receive/*
+	$(MAKE) -C $(WOLFPLOTTER_DIR) clean
