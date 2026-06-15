@@ -16,6 +16,9 @@
 #include <string.h>
 #include <sodium.h>
 #include "chacha.h"
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 
 /* MPI Configuration */
 #define IMAGE_WORKERS 3                        /* Número de workers en el servidor */
@@ -161,13 +164,30 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     char hostname[256];
-
     gethostname(hostname, sizeof(hostname));
 
-    printf(
-        "[CLIENTE] Rank %d ejecutandose en %s\n",
-        rank,
-        hostname);
+    struct hostent *h = gethostbyname(hostname);
+
+    if (h && h->h_addr_list[0])
+    {
+        char ip[INET_ADDRSTRLEN];
+
+        inet_ntop(AF_INET,
+                  h->h_addr_list[0],
+                  ip,
+                  sizeof(ip));
+
+        printf("[CLIENTE] Rank %d host=%s ip=%s\n",
+               rank,
+               hostname,
+               ip);
+    }
+    else
+    {
+        printf("[CLIENTE] Rank %d host=%s\n",
+               rank,
+               hostname);
+    }
 
     fflush(stdout);
 

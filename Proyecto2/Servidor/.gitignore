@@ -94,3 +94,11 @@ dkms.conf
 *.iml
 out
 gen
+
+# Local Binaries
+servidor
+Servidor
+mpi_hello
+cliente
+test_chacha_mpi
+

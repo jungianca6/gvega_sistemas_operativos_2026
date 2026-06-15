@@ -341,3 +341,13 @@ cython_debug/
 Proyecto1/SchedulingShips_IDF/Project.md
 /Proyecto1/SchedulingShips_IDF/managed_components/espressif__cjson
 Proyecto2/darknet/*.weights
+
+# Proyecto 2 Compiled Binaries and Objects
+Proyecto2/Servidor/servidor
+Proyecto2/Servidor/Servidor
+Proyecto2/Servidor/mpi_hello
+Proyecto2/Servidor/cliente
+Proyecto2/Servidor/test_chacha_mpi
+
+# Darknet Folder
+Proyecto2/darknet/

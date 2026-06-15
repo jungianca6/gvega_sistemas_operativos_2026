@@ -2,9 +2,12 @@ CC=mpicc
 
 CHACHA_DIR=chacha_lib
 DARKNET_DIR=../darknet
+WOLFPLOTTER_DIR=../libAndDriver
+WOLFPLOTTER_LIB=$(WOLFPLOTTER_DIR)/libwolfPlotter.a
 
-CFLAGS=-Wall -Wextra -O2 -I$(CHACHA_DIR) -I$(DARKNET_DIR)/include
-LDFLAGS=-L$(CHACHA_DIR) -lchacha -lsodium $(DARKNET_DIR)/libdarknet.a -lm -pthread
+CFLAGS=-Wall -Wextra -O2 -I$(CHACHA_DIR) -I$(DARKNET_DIR)/include -I$(WOLFPLOTTER_DIR)
+LDFLAGS=-L$(CHACHA_DIR) -lchacha -lsodium $(DARKNET_DIR)/libdarknet.a \
+        $(WOLFPLOTTER_LIB) -lm -pthread
 
 TARGET=servidor
 SERVER=servidor
@@ -17,12 +20,17 @@ IMG2=../images/person.jpg
 IMG3=../images/horses.jpg
 IMAGES_DIR=../images
 
+<<<<<<< HEAD
 CLIENT_HOST=192.168.0.100
 SERVER_HOST=192.168.0.101
 WORKER_HOST=192.168.0.100
 WORKER2=172.18.189.69
+=======
+MASTER=192.168.100.58
+WORKER1=192.168.100.20
+>>>>>>> integration
 
-all: libchacha darknet_lib $(TARGET) $(CLIENT)
+all: libchacha darknet_lib wolfplotter_lib $(TARGET) $(CLIENT)
 
 $(TARGET): $(SRC) libchacha
 	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
@@ -44,11 +52,19 @@ run-server-client:
 
 run-distributed:
 	mpirun --oversubscribe \
+<<<<<<< HEAD
 	-host $(CLIENT_HOST):1 -np 1 ./cliente \
+=======
+	-host $(WORKER1):1 -np 1 ./cliente \
+>>>>>>> integration
 	: \
 	-host $(SERVER_HOST):1 -np 1 ./servidor \
 	: \
+<<<<<<< HEAD
 	-host $(WORKER_HOST):3 -np 3 ./servidor 
+=======
+	-host $(WORKER1):3 -np 3 ./servidor
+>>>>>>> integration
 
 run-all:
 	@bash run_all_batches.sh
@@ -64,5 +80,31 @@ $(LIBCHACHA): $(CHACHA_DIR)/chacha.o
 darknet_lib:
 	$(MAKE) -C $(DARKNET_DIR) libdarknet.a
 
+wolfplotter_lib: $(WOLFPLOTTER_LIB)
+
+$(WOLFPLOTTER_LIB):
+	$(MAKE) -C $(WOLFPLOTTER_DIR) lib
+
+sync:
+	rsync -avz --exclude '*.o' --exclude '*.a' \
+	--exclude 'servidor' --exclude 'cliente' \
+	--exclude 'mpi_hello' --exclude 'test_chacha_mpi' \
+	./ smz19@$(MASTER):~/Desktop/gvega_sistemas_operativos_2026/Proyecto2/Servidor/
+	rsync -avz --exclude '*.o' --exclude '*.a' --exclude '*.ko' \
+	--exclude 'blink_test' --exclude 'wolfLibTest' \
+	$(WOLFPLOTTER_DIR)/ smz19@$(MASTER):~/Desktop/gvega_sistemas_operativos_2026/Proyecto2/libAndDriver/
+
+driver-load:
+	$(MAKE) -C $(WOLFPLOTTER_DIR) load
+
+driver-unload:
+	$(MAKE) -C $(WOLFPLOTTER_DIR) unload
+
+driver-verify:
+	$(MAKE) -C $(WOLFPLOTTER_DIR) verify
+
 clean:
 	rm -f $(TARGET) $(SERVER) $(CLIENT) $(CHACHA_DIR)/chacha.o $(LIBCHACHA)
+	rm -rf ../result/*
+	rm -rf ../receive/*
+	$(MAKE) -C $(WOLFPLOTTER_DIR) clean
